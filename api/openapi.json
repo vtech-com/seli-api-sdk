@@ -1,0 +1,644 @@
+{
+  "components": {
+    "parameters": {
+      "XTenantCode": {
+        "description": "Tenant code identifying the target tenant",
+        "in": "header",
+        "name": "X-Tenant-Code",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/XTenantCode"
+        }
+      }
+    },
+    "schemas": {
+      "ErrorEnvelope": {
+        "additionalProperties": false,
+        "description": "Standard error envelope for all error responses",
+        "properties": {
+          "error": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "description": "Seli error code",
+                "example": "E0003_UNAUTHORIZED",
+                "type": "string"
+              },
+              "message": {
+                "description": "Human-readable error message",
+                "example": "Unauthorized",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "HealthResponse": {
+        "additionalProperties": false,
+        "description": "Health check response — auth-path canary",
+        "properties": {
+          "ok": {
+            "description": "Server health status — always true when reachable",
+            "example": true,
+            "type": "boolean"
+          },
+          "timestamp": {
+            "description": "ISO 8601 timestamp of the response",
+            "example": "2026-07-24T09:30:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok",
+          "timestamp"
+        ],
+        "type": "object"
+      },
+      "XTenantCode": {
+        "description": "Tenant code identifying the target tenant",
+        "example": "acme",
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "bearerFormat": "ssk_",
+        "description": "Bearer token with ssk_ prefix. See the Authorization section for key management.",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "Seli Platform Public API — first-party REST surface. All endpoints require a valid ssk_ key and X-Tenant-Code header unless otherwise noted. The spec itself is public (no auth) and carries no tenant data, key, or JWT.",
+    "title": "Platform API",
+    "version": "v1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "description": "Auth-path canary — returns a minimal { ok, timestamp } payload after passing the proxy auth boundary. Proves the auth path (key → proxy → ApiContext) is working end-to-end.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XTenantCode"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/HealthResponse"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Server is healthy"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized — missing, invalid, revoked, or expired API key"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found — the requested resource does not exist or is not accessible"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests — rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Health check",
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/api/v1/members": {
+      "get": {
+        "description": "Returns a paginated list of members for the resolved tenant. Supports filtering by status and cursor-free page-based pagination.",
+        "parameters": [
+          {
+            "description": "Page number (1-based, default: 1)",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "description": "Page number (1-based, default: 1)",
+              "example": "1",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Items per page (default: 20, max: 100)",
+            "in": "query",
+            "name": "pageSize",
+            "required": false,
+            "schema": {
+              "description": "Items per page (default: 20, max: 100)",
+              "example": "20",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by membership status (active, inactive)",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "description": "Filter by membership status (active, inactive)",
+              "example": "active",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XTenantCode"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "avatarUrl": {
+                            "description": "URL of the member's avatar image",
+                            "example": "https://example.com/avatars/abc.jpg",
+                            "format": "uri",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "contactEmail": {
+                            "description": "Contact email address",
+                            "example": "a.nguyen@example.com",
+                            "format": "email",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "contactPhone": {
+                            "description": "Contact phone number",
+                            "example": "+84901234567",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "createdAt": {
+                            "description": "ISO 8601 timestamp when the membership was created",
+                            "example": "2026-07-24T09:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "department": {
+                            "description": "Department within the organisation",
+                            "example": "Engineering",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "displayName": {
+                            "description": "Display name of the member",
+                            "example": "Nguyen Van A",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "id": {
+                            "description": "Unique member identifier (UUID)",
+                            "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "jobTitle": {
+                            "description": "Job title within the organisation",
+                            "example": "Software Engineer",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "level": {
+                            "description": "Membership level within the tenant",
+                            "enum": [
+                              "owner",
+                              "member"
+                            ],
+                            "example": "member",
+                            "type": "string"
+                          },
+                          "memberCode": {
+                            "description": "Optional member code for external system integration",
+                            "example": "M-001",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "status": {
+                            "description": "Current membership status",
+                            "enum": [
+                              "active",
+                              "inactive"
+                            ],
+                            "example": "active",
+                            "type": "string"
+                          },
+                          "userId": {
+                            "description": "User ID this member record represents (UUID)",
+                            "example": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "userId",
+                          "level",
+                          "status",
+                          "createdAt",
+                          "displayName",
+                          "avatarUrl",
+                          "contactEmail",
+                          "contactPhone",
+                          "jobTitle",
+                          "department",
+                          "memberCode"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "meta": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "pagination": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "page": {
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "pageSize": {
+                              "exclusiveMinimum": 0,
+                              "type": "integer"
+                            },
+                            "total": {
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "totalPages": {
+                              "minimum": 0,
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "page",
+                            "pageSize",
+                            "total",
+                            "totalPages"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "pagination"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Paginated list of members"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized — missing, invalid, revoked, or expired API key"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found — the requested resource does not exist or is not accessible"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests — rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List members",
+        "tags": [
+          "Members"
+        ]
+      }
+    },
+    "/api/v1/members/{id}": {
+      "get": {
+        "description": "Returns a single member scoped to the resolved tenant. Both 'no such id' and 'that id is not in this tenant' return 404 (no existence leak — INV-3).",
+        "parameters": [
+          {
+            "description": "Member UUID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Member UUID",
+              "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XTenantCode"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "avatarUrl": {
+                          "description": "URL of the member's avatar image",
+                          "example": "https://example.com/avatars/abc.jpg",
+                          "format": "uri",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "contactEmail": {
+                          "description": "Contact email address",
+                          "example": "a.nguyen@example.com",
+                          "format": "email",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "contactPhone": {
+                          "description": "Contact phone number",
+                          "example": "+84901234567",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "createdAt": {
+                          "description": "ISO 8601 timestamp when the membership was created",
+                          "example": "2026-07-24T09:30:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "department": {
+                          "description": "Department within the organisation",
+                          "example": "Engineering",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "displayName": {
+                          "description": "Display name of the member",
+                          "example": "Nguyen Van A",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "id": {
+                          "description": "Unique member identifier (UUID)",
+                          "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "jobTitle": {
+                          "description": "Job title within the organisation",
+                          "example": "Software Engineer",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "level": {
+                          "description": "Membership level within the tenant",
+                          "enum": [
+                            "owner",
+                            "member"
+                          ],
+                          "example": "member",
+                          "type": "string"
+                        },
+                        "memberCode": {
+                          "description": "Optional member code for external system integration",
+                          "example": "M-001",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "status": {
+                          "description": "Current membership status",
+                          "enum": [
+                            "active",
+                            "inactive"
+                          ],
+                          "example": "active",
+                          "type": "string"
+                        },
+                        "userId": {
+                          "description": "User ID this member record represents (UUID)",
+                          "example": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+                          "format": "uuid",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "userId",
+                        "level",
+                        "status",
+                        "createdAt",
+                        "displayName",
+                        "avatarUrl",
+                        "contactEmail",
+                        "contactPhone",
+                        "jobTitle",
+                        "department",
+                        "memberCode"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Member details"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized — missing, invalid, revoked, or expired API key"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found — the requested resource does not exist or is not accessible"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests — rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Get member by ID",
+        "tags": [
+          "Members"
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.seli.vn/api/v1"
+    }
+  ],
+  "webhooks": {}
+}
