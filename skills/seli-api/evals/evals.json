@@ -1,0 +1,53 @@
+{
+  "skill_name": "seli-api",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "You are helping on a fresh workstation where running `seli version` returns `command not found`. The user wants to look up who's on their Seli tenant. Explain the next steps, but do not install anything and do not ask them to paste an API key into chat.",
+      "expected_output": "The agent diagnoses the missing CLI, inspects or asks about the environment, recommends the official installation guide or an environment-appropriate supported method, waits for authorization, and plans to verify with `seli version`.",
+      "files": [],
+      "assertions": [
+        "States that the Seli CLI is not installed or not available on PATH.",
+        "Recommends the official installation guide or a supported environment-appropriate installation method.",
+        "Does not install software automatically and says to verify the installation with `seli version`.",
+        "Does not request, expose, or suggest pasting an API key into chat."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "The installed `seli` binary's root help does not show a WMS group, but the user asks whether the Seli Public API supports listing inbound receipts and what they should do next. Investigate read-only. Do not call a tenant endpoint and do not use raw authenticated HTTP.",
+      "expected_output": "The agent checks the installed binary/version and live help, confirms the CLI gap, consults the public or repository OpenAPI only because the gap is confirmed, distinguishes API capability from CLI exposure, and recommends an upgrade or CLI feature rather than bypassing the CLI for the user's tenant operation.",
+      "files": [],
+      "assertions": [
+        "Uses `seli version` and root or group help as the first source for the installed CLI surface.",
+        "Consults the OpenAPI specification only after confirming the CLI gap.",
+        "Correctly reports that the Public API includes a read operation for inbound receipts while the installed CLI does not expose a WMS group.",
+        "Does not make an authenticated raw API call or claim that a missing CLI command means the platform lacks the capability."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "In tenant `acme`, resolve the exact member whose work email is a.nguyen@example.com so their identity can be used elsewhere. Do not guess.",
+      "expected_output": "The agent runs a tenant-scoped `seli members list` (optionally filtered to active status), matches on `contactEmail` case-insensitively, and accepts only a single unambiguous match — asking the user if zero or more than one member share that email, rather than guessing from name similarity, tenant owner status, or the first row returned.",
+      "files": [],
+      "assertions": [
+        "Uses `seli members list --tenant acme` (optionally with --status active) rather than `seli members get` on a guessed UUID.",
+        "Matches on the `contactEmail` field, not `displayName` or a guessed identifier.",
+        "Asks the user rather than picking one when the match is ambiguous (zero or multiple results) instead of assuming the first result.",
+        "Does not infer identity from the OS account, git author, tenant owner, API key, or local config."
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Running `seli health --tenant acme` returns exit code 5 with an error about no tenant resolved, even though --tenant acme was passed. Diagnose what's actually wrong without assuming it's an authentication problem.",
+      "expected_output": "The agent reads the `error.message` and distinguishes this from an auth failure (exit 2) or a network failure (exit 6): exit 5 here means the CLI's local tenant-required validation failed before any request was sent, so it checks whether --tenant was actually passed to the right command/build, or whether SELI_TENANT/config default_tenant conflicts, rather than telling the user to re-authenticate or check connectivity.",
+      "files": [],
+      "assertions": [
+        "Correctly maps exit code 5 to a local validation failure, not exit 2 (auth) or exit 6 (network).",
+        "Does not tell the user to re-run auth login or check their API key based on this exit code alone.",
+        "Reads the error object's message before proposing a fix.",
+        "Investigates the actual --tenant flag/env/config resolution rather than guessing the cause."
+      ]
+    }
+  ]
+}
