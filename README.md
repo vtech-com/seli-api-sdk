@@ -8,16 +8,28 @@ A CLI tool and Go SDK for the Seli platform — built for third-party AI agents,
 
 ```bash
 seli version
-seli config get api_url
+seli config set-default-tenant acme
+seli health --tenant acme
+seli members list --tenant acme
 ```
 
 ## Status
 
-This is the scaffolding stage: project structure, build tooling, config
-storage, and the cobra/viper command skeleton are in place, mirrored from an
-existing sibling SDK. The Seli API client (`internal/api`) and the domain
-command groups it backs (whatever Seli's resources turn out to be) are not
-implemented yet — that's the next piece of work.
+Early, but no longer a scaffold. The API client (`internal/api`) is in place —
+base URL resolution, injected auth and tenant headers, response decoding, and
+error-to-exit-code mapping — and the first domain commands ship on top of it:
+
+| Command | Endpoint |
+|---|---|
+| `seli health` | `GET /api/v1/health` |
+| `seli members list` | `GET /api/v1/members` |
+| `seli members get <id>` | `GET /api/v1/members/{id}` |
+
+Plus local `seli config ...` and `seli version`. Every path in
+[`api/openapi.json`](api/openapi.json) is currently wrapped; the Public API is
+growing, and command groups are added as endpoints land — see
+[`docs/api-coverage-gaps.md`](docs/api-coverage-gaps.md) for what the API itself
+does not expose yet, and [`docs/plans/`](docs/plans/) for work in flight.
 
 ## Design goals (carried over from the scaffold)
 
@@ -64,6 +76,28 @@ The skill:
 The conventions it enforces — one JSON envelope, deterministic exit codes, tenant
 resolution, `--from-json` for complex bodies — are documented in the skill's
 `references/` and apply to hand-written commands too.
+
+### The shipped agent skill
+
+[`skills/seli-api/`](skills/seli-api/) is a product artifact, not repo tooling: it is
+the skill an AI agent loads to drive the installed `seli` binary on someone else's
+machine. It teaches a discovery workflow (`seli --help` is authoritative for flags),
+the CLI's stable contracts, exit-code handling, and tenant resolution — deliberately
+without duplicating the command tree, since the binary is self-documenting.
+
+Because those agents can't see this repo, the skill has to stay true to the CLI. Keep
+it in sync with the **`seli-api-skill-maintainer`** agent skill
+([`.agents/skills/seli-api-skill-maintainer/`](.agents/skills/seli-api-skill-maintainer/)):
+
+```
+/seli-api-skill-maintainer sync the skill with the commands that just landed
+```
+
+It diffs the repo against the provenance recorded in `skills/seli-api/.sync.json`,
+rebuilds the ground truth from a fresh binary, the spec, and `cmd/helpers.go`, then
+fixes both directions of drift — stale claims *and* assertions the CLI has outgrown —
+including `evals/evals.json`. Run it after new commands land, after `api/openapi.json`
+changes, before a release, or whenever `--help` and the skill disagree.
 
 ## License
 

@@ -1,0 +1,21 @@
+{
+  "last_synced_commit": "b16e383319df328dcbba410730cfd3e5e904e8ee",
+  "last_synced_at": "2026-07-31",
+  "spec_sha256": "c900b2cae32ca82422a370487f9fc79dea84339311710c39161993c85310e8db",
+  "spec_paths": [
+    "GET /api/v1/health",
+    "GET /api/v1/members",
+    "GET /api/v1/members/{id}"
+  ],
+  "cli_commands": [
+    "health",
+    "members list",
+    "members get",
+    "config get",
+    "config set",
+    "config set-default-tenant",
+    "config unset-default-tenant",
+    "version"
+  ],
+  "notes": "Baseline recorded when the seli-api-skill-maintainer skill was created; the shipped skill was not edited in this run. Verified against the build at this commit: exit-code table in cmd/helpers.go (500+ -> 6, 401 -> 2, 403 -> 3, 404 -> 4, 400 -> 5, 429 -> 7, else 1) matches SKILL.md section 1, and every spec path is wrapped by a command."
+}
