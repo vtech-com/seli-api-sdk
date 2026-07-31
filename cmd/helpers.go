@@ -4,6 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+
+	"github.com/spf13/viper"
+	"github.com/vtech-com/seli-api-sdk/internal/api"
+	"github.com/vtech-com/seli-api-sdk/internal/config"
 )
 
 // CLIError is a locally-detected error: a bad flag combination, an unreadable
@@ -30,14 +34,50 @@ func ExitCodeFor(err error) int {
 	if cliErr == nil {
 		return 1
 	}
+	if cliErr.Code == "NETWORK_ERROR" {
+		return 6
+	}
 	switch cliErr.HTTPStatus {
+	case 401:
+		return 2
+	case 403:
+		return 3
 	case 404:
 		return 4
 	case 400:
 		return 5
+	case 429:
+		return 7
 	default:
 		return 1
 	}
+}
+
+// failAPIError renders an *api.Error (from internal/api) as a *CLIError and
+// exits, preserving the server's code/message and HTTP status.
+func failAPIError(err error) {
+	if apiErr, ok := err.(*api.Error); ok {
+		fail(apiErr.Code, apiErr.Message, apiErr.HTTPStatus)
+	}
+	fail("UNKNOWN_ERROR", err.Error(), 0)
+}
+
+// resolveTenant applies the documented resolution order: --tenant flag,
+// then SELI_TENANT env (both already merged by viper via BindPFlag/BindEnv),
+// then the active profile's default_tenant. Returns "" if none resolve.
+func resolveTenant() string {
+	if t := viper.GetString("tenant"); t != "" {
+		return t
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return ""
+	}
+	p, err := config.ActiveProfile(cfg)
+	if err != nil {
+		return ""
+	}
+	return p.DefaultTenant
 }
 
 // envelope is the one output shape every command prints on stdout:
@@ -47,10 +87,17 @@ type envelope struct {
 	Meta any `json:"meta"`
 }
 
-// writeEnvelope prints data on stdout in the standard envelope.
+// writeEnvelope prints data on stdout in the standard envelope, with an
+// empty meta. Used by single-record commands.
 func writeEnvelope(data any) error {
+	return writeEnvelopeWithMeta(data, struct{}{})
+}
+
+// writeEnvelopeWithMeta prints data and meta on stdout in the standard
+// envelope. Used by list commands that carry pagination in meta.
+func writeEnvelopeWithMeta(data, meta any) error {
 	enc := json.NewEncoder(os.Stdout)
-	return enc.Encode(envelope{Data: data, Meta: struct{}{}})
+	return enc.Encode(envelope{Data: data, Meta: meta})
 }
 
 // renderCLIError prints a concise error line to stderr and an error envelope

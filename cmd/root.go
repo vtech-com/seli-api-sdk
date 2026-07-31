@@ -10,6 +10,7 @@ import (
 var (
 	apiURL  string
 	verbose bool
+	tenant  string
 )
 
 var rootCmd = &cobra.Command{
@@ -25,7 +26,7 @@ whether it read one record, read a page of them, or wrote one. There is no
 output flag, and no second shape to branch on.
 
 USAGE
-  seli [--api-url <url>] [-v] <group> <command> [<args>]
+  seli [--api-url <url>] [--tenant <code>] [-v] <group> <command> [<args>]
 
   seli <group> --help          the commands in that group
   seli <group> <cmd> --help    purpose, usage, flags, output`,
@@ -49,12 +50,14 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", "", "override the API base URL")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "print the HTTP request and response (key redacted)")
+	rootCmd.PersistentFlags().StringVar(&tenant, "tenant", "", "tenant code to scope the request to")
 
 	_ = viper.BindEnv("api_key", "SELI_API_KEY")
 	_ = viper.BindEnv("tenant", "SELI_TENANT")
 	_ = viper.BindEnv("api_url", "SELI_API_URL")
 
 	_ = viper.BindPFlag("api_url", rootCmd.PersistentFlags().Lookup("api-url"))
+	_ = viper.BindPFlag("tenant", rootCmd.PersistentFlags().Lookup("tenant"))
 }
 
 // initConfig is the cobra.OnInitialize hook. It merges env-var overrides via
