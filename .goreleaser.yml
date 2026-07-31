@@ -1,0 +1,68 @@
+version: 2
+
+project_name: seli
+
+builds:
+  - id: seli
+    binary: seli
+    main: .
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/vtech-com/seli-api-sdk/internal/version.Version={{.Version}}
+      - -X github.com/vtech-com/seli-api-sdk/internal/version.Commit={{.Commit}}
+      - -X github.com/vtech-com/seli-api-sdk/internal/version.Date={{.Date}}
+
+archives:
+  - id: seli
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+
+nfpms:
+  - id: seli
+    ids:
+      - seli
+    package_name: seli
+    file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats:
+      - deb
+    vendor: VTech
+    homepage: "https://seli.app"
+    maintainer: "VTech <dev@seli.app>"
+    description: "CLI tool and Go SDK for the Seli platform"
+    license: MIT
+    bindir: /usr/bin
+    section: utils
+    priority: optional
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ .Tag }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
