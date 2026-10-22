@@ -811,6 +811,20 @@ func TestRootHelpHasGettingStarted(t *testing.T) {
 	}
 }
 
+// The members group only reads, and --api-url accepts plain http on loopback:
+// the one-line help must say what the commands and flag actually do.
+func TestHelpOneLinersAreAccurate(t *testing.T) {
+	t.Parallel()
+	res := cliRun(t, "", nil, "--help")
+
+	if strings.Contains(res.stdout, "Manage tenant members") || !strings.Contains(res.stdout, "Read tenant members") {
+		t.Errorf("the members group is read-only, but the root help says otherwise:\n%s", res.stdout)
+	}
+	if !strings.Contains(res.stdout, "host only; https, or http on localhost") {
+		t.Errorf("--api-url help does not mention the loopback http exception:\n%s", res.stdout)
+	}
+}
+
 // config set used to point at a command that did not exist and at a base URL
 // with a stale path.
 func TestConfigSetHelpExampleIsAHostOnlyPlaceholder(t *testing.T) {

@@ -18,7 +18,7 @@ const (
 
 var membersCmd = &cobra.Command{
 	Use:   "members",
-	Short: "Manage tenant members",
+	Short: "Read tenant members",
 	Long: `Read tenant membership records.
 
 USAGE

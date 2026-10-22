@@ -68,7 +68,7 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", "", "override the API base URL (host only, https)")
+	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", "", "override the API base URL (host only; https, or http on localhost)")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "trace the HTTP request and response on stderr (key redacted)")
 	rootCmd.PersistentFlags().StringVar(&tenant, "tenant", "", "tenant code to scope the request to")
 
