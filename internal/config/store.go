@@ -125,6 +125,49 @@ func ActiveProfile(cfg *Config) (*Profile, error) {
 	return &p, nil
 }
 
+// ActiveProfileName returns the name of the active profile, "default" when
+// active_profile is unset. It does not check that the profile exists.
+func ActiveProfileName(cfg *Config) string {
+	if cfg.ActiveProfile == "" {
+		return "default"
+	}
+	return cfg.ActiveProfile
+}
+
+// SetAPIKey stores key in the active profile, creating the profile — and
+// marking it active — when the config has none yet. It returns the profile's
+// name. Nothing is written to disk; the caller saves.
+func SetAPIKey(cfg *Config, key string) string {
+	name := ActiveProfileName(cfg)
+	if cfg.Profiles == nil {
+		cfg.Profiles = make(map[string]Profile)
+	}
+	p := cfg.Profiles[name]
+	p.APIKey = key
+	cfg.Profiles[name] = p
+
+	if cfg.ActiveProfile == "" {
+		cfg.ActiveProfile = name
+	}
+	cfg.Version = schemaVersion
+	return name
+}
+
+// ClearAPIKey removes the API key from the active profile and returns the
+// profile's name, and whether there was a key to remove. A profile that does
+// not exist, or has no key, is not an error. Nothing is written to disk; the
+// caller saves.
+func ClearAPIKey(cfg *Config) (name string, had bool) {
+	name = ActiveProfileName(cfg)
+	p, ok := cfg.Profiles[name]
+	if !ok || p.APIKey == "" {
+		return name, false
+	}
+	p.APIKey = ""
+	cfg.Profiles[name] = p
+	return name, true
+}
+
 // SetProfile sets the active profile to name. Returns an error if the profile
 // does not exist.
 func SetProfile(cfg *Config, name string) error {

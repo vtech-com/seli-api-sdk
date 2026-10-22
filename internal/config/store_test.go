@@ -45,7 +45,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		Profiles: map[string]Profile{
 			"default": {
 				APIKey:        "sk_test123",
-				APIURL:        "https://api.seli.app",
+				APIURL:        "https://api.example.test",
 				DefaultTenant: "acme",
 				KnownTenants:  []string{"acme", "globex"},
 			},
@@ -263,5 +263,88 @@ func TestSaveCreatesDirIfMissing(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Errorf("config file not created: %v", err)
+	}
+}
+
+func TestActiveProfileName(t *testing.T) {
+	if got := ActiveProfileName(&Config{}); got != "default" {
+		t.Errorf("unset active_profile: got %q, want default", got)
+	}
+	if got := ActiveProfileName(&Config{ActiveProfile: "staging"}); got != "staging" {
+		t.Errorf("got %q, want staging", got)
+	}
+}
+
+// The first login on a fresh machine has no config at all: it must create the
+// profile, make it active, and stamp the schema version.
+func TestSetAPIKeyCreatesTheProfile(t *testing.T) {
+	cfg := &Config{}
+
+	name := SetAPIKey(cfg, "ssk_abc")
+
+	if name != "default" || cfg.ActiveProfile != "default" {
+		t.Errorf("name = %q, active = %q, want default", name, cfg.ActiveProfile)
+	}
+	if cfg.Version != schemaVersion {
+		t.Errorf("Version = %d, want %d", cfg.Version, schemaVersion)
+	}
+	if got := cfg.Profiles["default"].APIKey; got != "ssk_abc" {
+		t.Errorf("APIKey = %q", got)
+	}
+}
+
+// Logging in again, or into an existing profile, replaces only the key.
+func TestSetAPIKeyKeepsTheRestOfTheProfile(t *testing.T) {
+	cfg := &Config{
+		Version:       schemaVersion,
+		ActiveProfile: "staging",
+		Profiles: map[string]Profile{
+			"staging": {APIKey: "ssk_old", APIURL: "https://staging.example.test", DefaultTenant: "acme", KnownTenants: []string{"acme"}},
+			"default": {APIKey: "ssk_other"},
+		},
+	}
+
+	name := SetAPIKey(cfg, "ssk_new")
+
+	if name != "staging" {
+		t.Errorf("name = %q, want staging", name)
+	}
+	p := cfg.Profiles["staging"]
+	if p.APIKey != "ssk_new" || p.APIURL != "https://staging.example.test" || p.DefaultTenant != "acme" || len(p.KnownTenants) != 1 {
+		t.Errorf("profile = %+v: only the key should have changed", p)
+	}
+	if cfg.Profiles["default"].APIKey != "ssk_other" {
+		t.Error("another profile's key was touched")
+	}
+}
+
+func TestClearAPIKey(t *testing.T) {
+	cfg := &Config{
+		ActiveProfile: "default",
+		Profiles:      map[string]Profile{"default": {APIKey: "ssk_abc", DefaultTenant: "acme"}},
+	}
+
+	name, had := ClearAPIKey(cfg)
+	if name != "default" || !had {
+		t.Fatalf("ClearAPIKey = (%q, %v), want (default, true)", name, had)
+	}
+	if p := cfg.Profiles["default"]; p.APIKey != "" || p.DefaultTenant != "acme" {
+		t.Errorf("profile = %+v: only the key should have been cleared", p)
+	}
+
+	// Logging out twice is harmless.
+	if _, had := ClearAPIKey(cfg); had {
+		t.Error("second ClearAPIKey reports a key to remove")
+	}
+}
+
+func TestClearAPIKeyWithNoProfile(t *testing.T) {
+	cfg := &Config{}
+	name, had := ClearAPIKey(cfg)
+	if name != "default" || had {
+		t.Errorf("ClearAPIKey = (%q, %v), want (default, false)", name, had)
+	}
+	if cfg.Profiles != nil {
+		t.Error("ClearAPIKey must not create a profile")
 	}
 }
