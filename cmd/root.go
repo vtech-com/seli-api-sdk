@@ -68,6 +68,10 @@ func Execute() {
 }
 
 func init() {
+	// Registration order is display order: a group lists its commands as its
+	// file registers them (reads first), not alphabetically.
+	cobra.EnableCommandSorting = false
+
 	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", "", "override the API base URL (host only; https, or http on localhost)")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "trace the HTTP request and response on stderr (key redacted)")
 	rootCmd.PersistentFlags().StringVar(&tenant, "tenant", "", "tenant code to scope the request to")
