@@ -49,7 +49,14 @@ GETTING STARTED
   The API host is configuration, not part of the CLI. It is the first of
   --api-url, SELI_API_URL, the profile's api_url, and the default baked into
   your build of the binary (seli version prints it). If none is set the CLI
-  fails locally with exit 5 and API_URL_MISSING.`,
+  fails locally with exit 5 and API_URL_MISSING.
+
+HELP TOPICS
+  Facts that hold for every command are stated once, not on each page:
+
+      seli help tenancy       how --tenant resolves, and who requires it
+      seli help output        the envelope, and which stream carries what
+      seli help exit-codes    what each exit code and error code means`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }
