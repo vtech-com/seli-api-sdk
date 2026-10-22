@@ -28,13 +28,14 @@ subcommands, via a plan the user approves first.
 
 1. Locate the spec at `api/openapi.json`.
    - If it is missing, **stop** and tell the user: the spec is the contract; offer
-     `make update-spec` (pulls prod openapi per `docs/api-coverage-gaps.md`) or ask
-     where the spec lives. Do not proceed from memory or from the doc tables —
+     `make update-spec` (fetches the live OpenAPI document from `SELI_SPEC_URL`, or
+     `$SELI_DEFAULT_API_URL/api/openapi`) or ask where the spec lives. Do not proceed from memory or from the doc tables —
      `docs/project-context.md §5.4` is illustrative and drifts.
 2. Map the requirement to concrete operations. See `references/spec-reading.md` for the
    `jq` recipes — path listing, operation extraction, schema resolution, tenant detection.
 3. Decide the command surface: which command groups, which subcommands, which flags.
-   Follow `references/command-conventions.md` — it encodes the envelope, exit codes,
+   Follow `references/command-conventions.md` — it encodes the envelope (`output.Write` /
+   `WritePartial`, `itemMeta` / `listMeta`), the exit codes (`api.ExitCodeFor`), `buildClient`,
    tenant rules, pagination, and file layout this repo already uses.
 4. Record what the requirement asks for that the spec **cannot** support. That belongs in
    the plan's §9 (Out of scope) and, if the endpoint simply doesn't exist server-side, in
@@ -88,8 +89,10 @@ Only after explicit approval:
    to `DONE` immediately after it verifiably works. If a step cannot be done as written,
    set `BLOCKED` and add a `NOTE:` line under the table saying why and what you did
    instead — never silently reinterpret a step.
-3. Go code follows the `golang-pro` skill and this repo's existing style (`cmd/config.go`
-   is the closest reference for a command group; `cmd/helpers.go` for errors/output).
+3. Go code follows the `golang-pro` skill and this repo's existing style (`cmd/members.go`
+   is the closest reference for a tenant-scoped command group; `cmd/helpers.go` for
+   `buildClient` and the error helpers, `cmd/meta.go` for `meta`, `internal/output` for the
+   envelope).
 4. Step 10 is always verification: `make build`, `make test`, `make lint`. Report real
    output. A failing suite means the row stays `TODO`/`BLOCKED` — do not mark it DONE.
 5. When every row is `DONE`: set frontmatter `status: done`, update the README index row

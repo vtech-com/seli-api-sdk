@@ -64,7 +64,8 @@ always agree with the §8 table and with the README index row.
   shape, response headers. Exact field names. This section is the one that must never be
   paraphrased from `docs/project-context.md`.
 - **§5 Error codes** — the named constants to add to `internal/api/errors.go`, with the
-  meaning of each. Note whether `ExitCodeFor` needs changing (usually it does not).
+  meaning of each. Note whether `api.ExitCodeFor` (`internal/api/errors.go`) needs changing (it maps 401, 403, 404,
+  400/422, 409, 429 and transport failures already, so usually it does not).
 - **§6 Implementation details** — the actual Go snippets: client struct changes, request
   models (pointers + `,omitempty` for optional fields), output display types, and the
   command surface as a usage block.

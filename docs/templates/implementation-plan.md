@@ -94,9 +94,9 @@ this; `cmd/<resource>.go` must check it using the same pattern as `<existingCmd>
 - `X-Tenant-Code: {tenant_code}` — required for all `<path prefix>` endpoints (CLI rejects early if absent)
 
 ### GET <path>
-Query: `page` (int, default 1), `limit` (1–100, default 20), `<filter>` (<format>)
+Query: `page` (int, default 1), `pageSize` (1–100, default 20), `<filter>` (<format>)  — names exactly as the spec spells them
 Response header: `<X-Header>` — <how the caller uses it>
-Response 200: `{ data: <Resource>[], meta: { page, limit, total, has_more } }`
+Response 200: `{ data: <Resource>[], meta: { pagination: { page, pageSize, total, totalPages } } }`  — transcribed from the spec; the CLI passes `meta` through untouched
 
 ### POST <path>
 Request body: `<field>` (required, <constraint>), `<field>` (<enum|default>), …
@@ -126,8 +126,8 @@ const (
 )
 ```
 
-These are informational constants — `ExitCodeFor()` already handles the HTTP status
-codes (400→5, 401→2, 403→3, 404→4) correctly. No change to `ExitCodeFor` needed.
+These are informational constants — `api.ExitCodeFor()` already handles the HTTP status
+codes (400/422→5, 401→2, 403→3, 404→4, 409→8, 429→7, transport failure→6, else 1) correctly. No change to `ExitCodeFor` needed.
 
 ---
 
@@ -172,7 +172,7 @@ type <Resource> struct {
 ### 6.4 `cmd/<resource>.go` command surface
 
 ```
-<bin> <resource> list     [--tenant <code>] [--page N] [--limit N] [--all]
+<bin> <resource> list     [--tenant <code>] [--page N] [--page-size N] [--all]
 <bin> <resource> create   --<required> <str> [--<optional> <str>] …
                           [--from-json <file|->]  (when provided, item flags are ignored)
 <bin> <resource> update   --id <uuid> [--<field> <str>] …
