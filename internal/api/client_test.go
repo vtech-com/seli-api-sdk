@@ -75,7 +75,7 @@ func TestNewClient_AllowsHTTPS(t *testing.T) {
 // Loopback exempts a host from the https rule, not a scheme from the rest of
 // the checks: ftp://localhost is no more a place to send a key than http://x.
 func TestNewClient_RejectsOtherSchemesEvenOnLoopback(t *testing.T) {
-	for _, u := range []string{"ftp://localhost", "file://127.0.0.1/x", "ws://localhost:80"} {
+	for _, u := range []string{"ftp://localhost", "file://127.0.0.1", "ws://localhost:80"} {
 		_, err := NewClient(u, testKey)
 		if err == nil {
 			t.Errorf("NewClient(%q) succeeded", u)
@@ -128,6 +128,72 @@ func TestNewClient_RejectsMalformedURL(t *testing.T) {
 	}
 }
 
+// The base URL is the host; the /api prefix and every path belong to the code
+// that knows the endpoint. A path, query or fragment in the base would end up
+// in the middle of every request URL (https://h/x?y=1 + /api/health =
+// https://h/x?y=1/api/health), and userinfo is a credential in a URL.
+func TestNewClient_RejectsABaseURLThatIsNotHostOnly(t *testing.T) {
+	cases := map[string]string{
+		"path":                  "https://api.example.test/x",
+		"the api prefix":        "https://api.example.test/api",
+		"a trailing path":       "https://api.example.test/api/",
+		"repeated slashes":      "https://api.example.test//",
+		"query":                 "https://api.example.test?y=SECRETQUERY",
+		"path and query":        "https://api.example.test/x?y=SECRETQUERY",
+		"empty query":           "https://api.example.test?",
+		"fragment":              "https://api.example.test#SECRETFRAG",
+		"empty fragment":        "https://api.example.test/#",
+		"userinfo":              "https://someone:SECRETPASS@api.example.test",
+		"username only":         "https://SECRETUSER@api.example.test",
+		"loopback with a path":  "http://127.0.0.1:8080/api",
+		"loopback with a query": "http://localhost:8080?x=SECRETQUERY",
+	}
+	for name, u := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := NewClient(u, testKey)
+			if err == nil {
+				t.Fatalf("NewClient(%q) succeeded", u)
+			}
+			apiErr := asAPIError(t, err)
+			if apiErr.Code != ErrValidation {
+				t.Errorf("Code = %q, want %q", apiErr.Code, ErrValidation)
+			}
+			if got := ExitCodeFor(err); got != 5 {
+				t.Errorf("exit code = %d, want 5", got)
+			}
+			if !strings.Contains(apiErr.Message, "host only") || !strings.Contains(apiErr.Message, "https://<host>") {
+				t.Errorf("message does not say what is wanted: %q", apiErr.Message)
+			}
+			// The value may carry a credential; the message must not repeat it.
+			if strings.Contains(apiErr.Message, "SECRET") {
+				t.Errorf("message repeats part of the URL: %q", apiErr.Message)
+			}
+		})
+	}
+}
+
+func TestNewClient_AcceptsAHostOnlyBaseURL(t *testing.T) {
+	for _, u := range []string{
+		"https://api.example.test", "https://api.example.test/", "https://api.example.test:8443",
+		"https://api.example.test:8443/", "http://localhost:3999/", "http://127.0.0.1:3999",
+	} {
+		if _, err := NewClient(u, testKey); err != nil {
+			t.Errorf("NewClient(%q): %v", u, err)
+		}
+	}
+}
+
+// A malformed URL is reported without being echoed: it may have a password in it.
+func TestNewClient_MalformedURLErrorDoesNotEchoTheValue(t *testing.T) {
+	_, err := NewClient("https://someone:SECRETPASS@api.example.test/%zz", testKey)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if apiErr := asAPIError(t, err); strings.Contains(apiErr.Message, "SECRETPASS") || strings.Contains(apiErr.Message, "someone") {
+		t.Errorf("message repeats the credentials: %q", apiErr.Message)
+	}
+}
+
 func TestNewClient_RejectsKeyWithWhitespace(t *testing.T) {
 	for _, key := range []string{"ssk_a b", "ssk_a\nb", "ssk_a\tb", "ssk_a\x7fb"} {
 		_, err := NewClient("https://api.example.test", key)
@@ -163,7 +229,7 @@ func TestNewClient_TrimsTrailingSlash(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c, err := NewClient(srv.URL+"//", testKey)
+	c, err := NewClient(srv.URL+"/", testKey)
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
@@ -725,15 +791,17 @@ func TestVerbose_NeverPrintsACallerSuppliedAuthorization(t *testing.T) {
 	}
 }
 
-// A base URL can carry credentials in its userinfo. A trace is pasted into
-// tickets, so it must not print them.
-func TestVerbose_RedactsCredentialsInTheBaseURL(t *testing.T) {
+// NewClient refuses a base URL with userinfo, so this client cannot be built
+// through it; the trace still redacts the URL, as a second line of defence for
+// the day a URL reaches send() some other way. A trace is pasted into tickets.
+func TestVerbose_RedactsCredentialsInTheRequestURL(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{}`)) }))
 	defer srv.Close()
 
-	c, err := NewClient(strings.Replace(srv.URL, "http://", "http://someone:hunter2@", 1), testKey)
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
+	c := &Client{
+		http:    srv.Client(),
+		baseURL: strings.Replace(srv.URL, "http://", "http://someone:hunter2@", 1),
+		apiKey:  testKey,
 	}
 	var trace bytes.Buffer
 	c.EnableVerbose(&trace)

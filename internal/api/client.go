@@ -53,10 +53,11 @@ func (c *Client) EnableVerbose(w io.Writer) {
 	c.verboseW = w
 }
 
-// NewClient creates a Client. baseURL is the host only (any path prefix is the
-// caller's to add per endpoint) and must use HTTPS unless its host is
-// localhost or 127.0.0.1. Every failure here is diagnosed locally: nothing has
-// been sent.
+// NewClient creates a Client. baseURL is the host only, e.g. https://<host>: no
+// path beyond an optional "/", no query, fragment or credentials (the /api
+// prefix and each endpoint's path are added per request). It must use HTTPS
+// unless its host is localhost or 127.0.0.1. Every failure here is diagnosed
+// locally: nothing has been sent.
 func NewClient(baseURL, apiKey string) (*Client, error) {
 	baseURL = strings.TrimSpace(baseURL)
 	if baseURL == "" {
@@ -67,11 +68,36 @@ func NewClient(baseURL, apiKey string) (*Client, error) {
 		}
 	}
 
+	// None of the messages below repeat the value: a base URL pasted wrongly can
+	// carry a password or a token, and these messages are printed and pasted.
 	u, err := url.Parse(baseURL)
 	if err != nil || u.Host == "" {
 		return nil, &APIError{
 			Code:       ErrValidation,
-			Message:    fmt.Sprintf("invalid API base URL %q: want https://<host>", baseURL),
+			Message:    "invalid API base URL: want the host only, e.g. https://<host>",
+			HTTPStatus: 400,
+		}
+	}
+	// The base URL is the host. The /api prefix and each endpoint's path belong to
+	// the code that knows the endpoint, so anything else here would land in the
+	// middle of every request URL (https://h/x?y=1 + /api/health).
+	var extras []string
+	if u.User != nil {
+		extras = append(extras, "credentials")
+	}
+	if u.Path != "" && u.Path != "/" {
+		extras = append(extras, "a path")
+	}
+	if strings.Contains(baseURL, "?") {
+		extras = append(extras, "a query string")
+	}
+	if strings.Contains(baseURL, "#") {
+		extras = append(extras, "a fragment")
+	}
+	if len(extras) > 0 {
+		return nil, &APIError{
+			Code:       ErrValidation,
+			Message:    "the API base URL must be host only, e.g. https://<host>, but it has " + strings.Join(extras, " and "),
 			HTTPStatus: 400,
 		}
 	}

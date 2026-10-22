@@ -270,6 +270,42 @@ func TestPlainHTTPIsRefusedFromTheFlagToo(t *testing.T) {
 	}
 }
 
+// The base URL is the host. A path, query or credentials on it is refused
+// locally, whichever layer supplied it, and nothing is sent.
+func TestBaseURLThatIsNotHostOnlyIsRefused(t *testing.T) {
+	t.Parallel()
+	api := newFakeAPI(t, healthOK)
+
+	for name, tc := range map[string]struct {
+		env  map[string]string
+		args []string
+	}{
+		"flag with a path":   {nil, []string{"--api-url", api.url() + "/api/v1"}},
+		"env with a query":   {map[string]string{"SELI_API_URL": api.url() + "?y=1"}, nil},
+		"flag with userinfo": {nil, []string{"--api-url", strings.Replace(api.url(), "http://", "http://someone:hunter2@", 1)}},
+	} {
+		env := map[string]string{"SELI_API_KEY": testAPIKey, "SELI_API_URL": api.url()}
+		for k, v := range tc.env {
+			env[k] = v
+		}
+
+		res := cliRun(t, "", env, append([]string{"health", "--tenant", "acme"}, tc.args...)...)
+
+		if res.exit != 5 {
+			t.Errorf("%s: exit = %d, want 5\nstdout: %s\nstderr: %s", name, res.exit, res.stdout, res.stderr)
+		}
+		if code := obj(t, res.doc(t), "error")["code"]; code != "VALIDATION_ERROR" {
+			t.Errorf("%s: error.code = %v", name, code)
+		}
+		if strings.Contains(res.stdout+res.stderr, "hunter2") {
+			t.Errorf("%s: the refusal printed the password", name)
+		}
+	}
+	if n := len(api.requests()); n != 0 {
+		t.Errorf("%d requests were sent with a base URL that is not host only", n)
+	}
+}
+
 func TestEveryLayerEmptyIsAPIURLMissing(t *testing.T) {
 	t.Parallel()
 	res := cliRun(t, "", map[string]string{"SELI_API_KEY": testAPIKey}, "health", "--tenant", "acme")
