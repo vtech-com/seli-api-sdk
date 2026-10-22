@@ -78,6 +78,11 @@ All notable changes to this project will be documented in this file.
   tenant every tenant-scoped command resolved to and where that came from.
 - `members list --all` asks for pages of 100 unless `--page-size` is given,
   instead of 20: fewer round trips for the same rows.
+- Commands are listed in the order they are registered, reads first, not
+  alphabetically: `seli members --help` shows `list` before `get`.
+- `seli members get --help` now shows a complete member in its OUTPUT section
+  (all twelve fields, the seven nullable ones included), and `members list`
+  points at it. The pages named none of them before.
 - The client refuses to read a response body over 16 MiB, and `members get`
   escapes the id in the request path.
 
@@ -91,6 +96,33 @@ All notable changes to this project will be documented in this file.
 - A `GETTING STARTED` section in `seli --help`.
 - `make update-spec` fetches the OpenAPI document from `SELI_SPEC_URL` (default
   `$SELI_DEFAULT_API_URL/api/openapi`) and pretty-prints it.
+- Spec-drift guards that fail `make test` (and so CI) the moment `api/openapi.json`
+  outgrows the CLI:
+  - every `METHOD /path` in the spec is either wrapped (`implementedOps`) or
+    listed as deliberately unwrapped with a reason (`intentionallyUnwrapped`;
+    the seven operations plan 003 will wrap today);
+  - every query parameter of a wrapped GET has a flag, camelCase and snake_case
+    becoming kebab-case (`pageSize` is `--page-size`), with a documented alias
+    map for renames;
+  - every body field of a wrapped write has a flag or the command registers
+    `--from-json`. No wrapped operation has a body yet; the mechanism is proven
+    against the spec's own POSTs so the first write command lands under guard.
+- Help-page tests: every runnable command carries PURPOSE, USAGE, FLAGS and
+  OUTPUT in that order, FLAGS documents exactly the flags the command defines,
+  OUTPUT names `.data`, no page advertises an output mode, `list` leads its
+  group, no subcommand is registered twice, and an unknown subcommand exits 5
+  with a suggestion.
+- `seli help tenancy`, `seli help output` and `seli help exit-codes`: the
+  cross-cutting contracts (tenant resolution and `meta.tenant_source`, the
+  `{error?, data, meta}` envelope and partial results, exit codes 0-8 and the
+  CLI-side error codes) stated once. A test fails if a page points at a topic
+  that does not exist.
+- `make verify-api` (`scripts/verify_api.py`) calls the live API, read-only and
+  GET only, with `SELI_API_URL`, `SELI_API_KEY` and `SELI_TENANT`. For every
+  GET in the spec that needs no path parameter, and every by-id GET reachable
+  from a collection, it reports MISSING, EXTRA or STATUS against the response
+  schema, and checks that each wrapped command's help OUTPUT names every field
+  the API returned. The key is never printed.
 - `.env.example` documenting `SELI_API_URL`, `SELI_API_KEY`, `SELI_TENANT`,
   `SELI_DEFAULT_API_URL` and `SELI_SPEC_URL`, with placeholders only.
 - An empty-but-wired error catalog (`internal/api/error_catalog.go`): entries
