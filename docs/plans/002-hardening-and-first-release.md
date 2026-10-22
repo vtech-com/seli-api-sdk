@@ -76,7 +76,7 @@ on purpose; wrapping them is plan 003 (via `api-command-builder`), not this plan
 | 4 | Plain `http://` base URLs are accepted, so the key travels in clear text. | Refuse non-HTTPS unless host is `localhost`/`127.0.0.1`. |
 | 5 | `ExitCodeFor` uses a type assertion, so a wrapped error falls to exit 1; 409 and 422 are unmapped. | `errors.As`; add 409→8, 422→5, `context.DeadlineExceeded`/`net.Error`→6. |
 | 6 | `Response.RequestID` is the client-generated id; the server's `X-Request-Id` and the error envelope's `request_id` are dropped. | Prefer the server's id; surface it in the error envelope. NOTE: prod does not echo `X-Request-Id` and its error body has no `request_id` (checked 2026-10-22), so the client-generated id is the only correlation handle — print it in every error envelope. |
-| 7 | Go 1.26.5 in `go.mod` and `release.yml`. | Bump to 1.26.10 (Capigo `6668836`, GO-2026-6809). |
+| 7 | Go 1.26.5 in `go.mod` and `release.yml`. | Bump to 1.26.10 (Capigo `6668836`, GO-2026-6809). DONE in PR #3 — govulncheck was failing every PR. |
 
 ### 2.3 Structural gaps vs. Capigo
 
