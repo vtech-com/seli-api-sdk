@@ -1,9 +1,14 @@
 name: Release
 
 # Two entry points. The usual one is release-on-merge.yml, which tags the merge
-# of a release/vX.Y.Z PR into main and then calls this workflow: a tag pushed
-# with GITHUB_TOKEN does not fire `push` workflows, so that path cannot rely on
-# the tag trigger below. The tag trigger stays for a tag pushed by hand.
+# of a release/vX.Y.Z PR into main and then calls this workflow through
+# workflow_call, supplying inputs.tag: a tag pushed with GITHUB_TOKEN does not
+# fire `push` workflows, so that path cannot rely on the tag trigger below.
+# The tag trigger stays for a tag pushed by hand.
+#
+# release-on-merge.yml is not in this branch. It lands separately, on the branch
+# docs/agent-guides-release-flow, so until that merges nothing calls
+# workflow_call here and only the tag trigger is live.
 on:
   push:
     tags:
