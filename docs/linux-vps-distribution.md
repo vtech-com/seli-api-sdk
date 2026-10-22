@@ -30,7 +30,7 @@ So the Linux binaries already exist and are already signed into `checksums.txt` 
 
 A `scripts/install.sh` in the repo, served from a stable URL, that detects OS/arch, resolves the latest release tag from the GitHub API (or takes `SELI_VERSION`), downloads the matching tarball, **verifies it against `checksums.txt`**, and installs the binary to `/usr/local/bin/seli`.
 
-- **Cost:** low — one script, no new CI secrets, no hosting beyond raw GitHub (or a `get.seli.app` redirect later).
+- **Cost:** low — one script, no new CI secrets, no hosting beyond raw GitHub (or a short redirect domain later).
 - **Upgrade:** re-run the script. Good enough; not integrated with the system package manager.
 - **Reach:** every distro, not just Debian — covers us if the VPS fleet ever diversifies.
 - **Risk:** `curl | sh` is a supply-chain-shaped pattern. Mitigations: checksum verification inside the script, and document a two-step form (`curl -O` → inspect → `sh`) alongside the one-liner. Never pipe a script that we don't check the checksum inside of.

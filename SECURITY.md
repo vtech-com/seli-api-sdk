@@ -4,7 +4,9 @@
 
 If you discover a security vulnerability in Seli CLI SDK, please **do NOT open a public GitHub issue**.
 
-Email us at **security@seli.app** with:
+Report it privately through GitHub: open the repository's **Security** tab and choose
+**Report a vulnerability** (<https://github.com/vtech-com/seli-api-sdk/security/advisories/new>).
+Include:
 
 - A description of the vulnerability
 - Steps to reproduce
@@ -23,8 +25,8 @@ We appreciate responsible disclosure and will credit reporters in the release no
 
 | Version | Supported |
 |---------|-----------|
-| 1.x     | ✅ Yes    |
-| 0.x     | ❌ No     |
+| Latest release | ✅ Yes |
+| Older releases | ❌ No — upgrade first |
 
 ## Known Security Properties
 
@@ -36,7 +38,9 @@ We appreciate responsible disclosure and will credit reporters in the release no
 
 **Transport security**
 
-- HTTPS is enforced; `http://` base URLs are rejected at startup
+- HTTPS is enforced; a plain `http://` base URL is rejected before any request, except on `localhost` / `127.0.0.1`
+- Redirects are never followed, so the `Authorization` header cannot travel with one
+- The base URL must be a bare host; a path, query, fragment, or userinfo is rejected
 - TLS certificate verification is not disabled
 
 **Distribution integrity**
@@ -55,4 +59,4 @@ The following are not considered vulnerabilities for this project:
 
 - Issues that require physical access to the user's machine
 - Social engineering attacks
-- Vulnerabilities in the Seli platform itself (report those to security@seli.app separately)
+- Vulnerabilities in the Seli platform itself (report those to the Seli platform team, not through this repository)

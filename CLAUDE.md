@@ -25,6 +25,8 @@ The repo is a Go CLI (`seli`) for the Seli Public API. **Do not trust any hardco
 
 The Seli API host will change, so it is **never written into source, tests, or docs**. It comes from `SELI_API_URL` (or `--api-url` / the profile's `api_url`) at runtime and from `SELI_DEFAULT_API_URL` at build/release time (baked in through ldflags; the release workflow reads it from a repo variable). Use `<host>` as the placeholder in prose and `httptest` URLs in tests. **Never take a default from the spec's `servers[0].url`** — it can point at a host that does not resolve, and `make update-spec` must not reintroduce it. If no host is configured, the CLI fails locally with a clear error; it does not guess.
 
+The same goes for **contact addresses**: the Seli domain will change, so no email or homepage is written into the repo. `SECURITY.md` points at GitHub private vulnerability reporting, and the package `homepage` / `maintainer` come from the `SELI_HOMEPAGE` / `SELI_MAINTAINER` repo variables (falling back to the GitHub repo).
+
 ## Agent ergonomics — output design rule
 
 The primary consumer of this CLI is an AI agent that reads **stdout** and routinely forgets its instruction skill. Settled principle: **truth must be salient on stdout** — totals, the resolved tenant, deleted state, partial/incomplete results, and missing-ID reconciliation are printed where the agent actually looks (on stdout, in the JSON document itself — salient `data`/`meta`/`error` fields), never only on stderr, in an exit code, or in documentation. When changing any command's output, ask: *if an agent read only stdout, could it reach a confidently wrong conclusion?* If yes, fix the output, not the manual.

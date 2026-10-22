@@ -117,7 +117,7 @@ seli-api-sdk/                          # Standalone repo on GitHub
 ├── README.md
 ├── CONTRIBUTING.md
 ├── CODE_OF_CONDUCT.md               # Contributor Covenant 2.1
-├── SECURITY.md                      # security@seli.app
+├── SECURITY.md                      # private reporting via GitHub Security Advisories
 ├── CHANGELOG.md                     # Keep a Changelog format
 ├── go.mod
 ├── go.sum
@@ -735,7 +735,7 @@ Required before making the repo public:
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability, please email **security@seli.app**.
+If you discover a security vulnerability, report it privately through the repository's GitHub **Security** tab (**Report a vulnerability**).
 
 **Do NOT open a public GitHub issue.**
 
