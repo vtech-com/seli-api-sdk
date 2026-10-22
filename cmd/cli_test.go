@@ -605,6 +605,54 @@ func pagedMembers(t *testing.T, pages, perPage, failOn, failStatus int) *fakeAPI
 	})
 }
 
+// 0 and negative values used to be dropped silently, so --page 0 read page 1 and
+// --page-size -5 read the server's default. Both are refused locally, before
+// anything is sent (and before the key is even looked for).
+func TestMembersList_RejectsPageAndPageSizeBelowOne(t *testing.T) {
+	t.Parallel()
+	api := pagedMembers(t, 1, 1, 0, 0)
+
+	for _, args := range [][]string{
+		{"--page", "0"}, {"--page", "-1"}, {"--page-size", "0"}, {"--page-size", "-5"},
+		{"--all", "--page", "0"}, {"--all", "--page-size", "0"}, {"--all", "--page-size", "-1"},
+	} {
+		res := cliRun(t, "", okEnv(api), append([]string{"members", "list", "--tenant", "acme"}, args...)...)
+
+		if res.exit != 5 {
+			t.Errorf("%v: exit = %d, want 5\nstdout: %s\nstderr: %s", args, res.exit, res.stdout, res.stderr)
+			continue
+		}
+		e := obj(t, res.doc(t), "error")
+		if e["code"] != "VALIDATION_ERROR" {
+			t.Errorf("%v: error.code = %v", args, e["code"])
+		}
+		if msg, _ := e["message"].(string); !strings.Contains(msg, args[len(args)-2]) {
+			t.Errorf("%v: message does not name the flag: %q", args, msg)
+		}
+	}
+	if n := len(api.requests()); n != 0 {
+		t.Errorf("%d requests were sent with a page or page size below 1", n)
+	}
+
+	// Validation comes before the credential check: no key is needed to be told.
+	res := cliRun(t, "", map[string]string{"SELI_API_URL": api.url()}, "members", "list", "--tenant", "acme", "--page", "0")
+	if res.exit != 5 {
+		t.Errorf("no key: exit = %d, want 5", res.exit)
+	}
+}
+
+// 1 is the smallest valid value of each, and 100 the largest page size.
+func TestMembersList_AcceptsTheBoundaryValues(t *testing.T) {
+	t.Parallel()
+	api := pagedMembers(t, 1, 1, 0, 0)
+
+	for _, args := range [][]string{{"--page", "1"}, {"--page-size", "1"}, {"--page-size", "100"}} {
+		if res := cliRun(t, "", okEnv(api), append([]string{"members", "list", "--tenant", "acme"}, args...)...); res.exit != 0 {
+			t.Errorf("%v: exit = %d\nstdout: %s\nstderr: %s", args, res.exit, res.stdout, res.stderr)
+		}
+	}
+}
+
 func TestMembersListAll_FetchesEveryPage(t *testing.T) {
 	t.Parallel()
 	api := pagedMembers(t, 3, 2, 0, 0)

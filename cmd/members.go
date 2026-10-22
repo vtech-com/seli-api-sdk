@@ -50,11 +50,11 @@ FLAGS
       if none resolve (--tenant, SELI_TENANT, config default_tenant).
 
   --page N
-      Page number, 1-based. Default 1.
+      Page number, 1-based. Default 1. Exit 5 if below 1.
 
   --page-size N
       Items per page, 1-100. Default 20 (100 with --all); values above 100
-      are capped before the request is sent.
+      are capped before the request is sent. Exit 5 if below 1.
 
   --status active|inactive
       Filter by membership status. Omitted by default (all statuses).
@@ -84,6 +84,16 @@ OUTPUT
   rows as complete.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// A zero or negative value is not "use the default": ListMembers omits it
+		// from the request, so --page 0 would silently read page 1. Refuse it
+		// while nothing has been sent and no credential is needed to be told.
+		if membersListPage < 1 {
+			failValidation("--page must be at least 1, got %d", membersListPage)
+		}
+		if membersListPageSize < 1 {
+			failValidation("--page-size must be between 1 and %d, got %d", membersMaxPageSize, membersListPageSize)
+		}
+
 		client, cfg, err := buildClient()
 		if err != nil {
 			return handleErr(err)
