@@ -97,10 +97,21 @@ func NewClient(baseURL, apiKey string) (*Client, error) {
 	}
 
 	return &Client{
-		http:    &http.Client{Timeout: requestTimeout},
+		http:    &http.Client{Timeout: requestTimeout, CheckRedirect: refuseRedirect},
 		baseURL: strings.TrimRight(baseURL, "/"),
 		apiKey:  apiKey,
 	}, nil
+}
+
+// refuseRedirect makes the HTTP client hand a 3xx back instead of following it.
+//
+// Go forwards the Authorization header on a redirect to the same host whatever
+// the scheme or port, so following one would send the API key in clear text on
+// an https -> http redirect, or to another listener on the same machine. The
+// API answers with data or an error, never a redirect; send() turns one into
+// UNEXPECTED_REDIRECT.
+func refuseRedirect(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
 }
 
 // ValidKeyChars reports whether key is free of whitespace and control
@@ -214,10 +225,37 @@ func (c *Client) send(req *http.Request, headers map[string]string, tenant strin
 		c.tracef("< %s\n", rawBody)
 	}
 
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return r, unexpectedRedirect(resp, rawBody, requestID)
+	}
 	if resp.StatusCode >= 400 {
 		return r, parseAPIError(rawBody, resp.StatusCode, requestID)
 	}
 	return r, nil
+}
+
+// unexpectedRedirect is the error for a 3xx, which the client never follows
+// (see refuseRedirect). It names where the server pointed, with any credentials
+// in that address redacted: the message is printed and pasted into tickets.
+func unexpectedRedirect(resp *http.Response, body []byte, requestID string) *APIError {
+	where := "nowhere (no Location header)"
+	if loc := resp.Header.Get("Location"); loc != "" {
+		where = "an unparseable Location"
+		if u, err := resp.Request.URL.Parse(loc); err == nil {
+			where = u.Redacted()
+		}
+		if len(where) > 200 {
+			where = where[:200] + "..."
+		}
+	}
+	return &APIError{
+		Code: ErrUnexpectedRedirect,
+		Message: fmt.Sprintf("the server answered %d, redirecting to %s. The CLI never follows redirects, because the API key would travel with them; check that the base URL is the API's current address",
+			resp.StatusCode, where),
+		RequestID:  requestID,
+		HTTPStatus: resp.StatusCode,
+		RawBody:    body,
+	}
 }
 
 // traceRequest writes the request line and the headers that go on the wire to

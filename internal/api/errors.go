@@ -7,8 +7,9 @@ import (
 	"net"
 )
 
-// Local, CLI-detected error codes — the server was never called, with one
-// exception: ErrNetwork also covers a transport failure after the request left.
+// CLI-defined error codes. All but two are diagnosed locally, before anything is
+// sent; ErrNetwork covers a transport failure after the request left, and
+// ErrUnexpectedRedirect a 3xx the server did send.
 const (
 	ErrTenantRequired    = "TENANT_REQUIRED"     // no tenant resolved for an endpoint that requires one
 	ErrInvalidMemberID   = "INVALID_MEMBER_ID"   // <id> positional arg is not a well-formed UUID
@@ -17,6 +18,8 @@ const (
 	ErrAuthMissingHeader = "AUTH_MISSING_HEADER" // no API key configured; exit 2
 	ErrInsecureBaseURL   = "INSECURE_BASE_URL"   // non-HTTPS, non-loopback base URL; exit 5
 	ErrAPIURLMissing     = "API_URL_MISSING"     // no base URL from any layer, and none baked into the build; exit 5
+
+	ErrUnexpectedRedirect = "UNEXPECTED_REDIRECT" // the server answered 3xx, which the client never follows; exit 1
 )
 
 // Per-endpoint tenant requirements, read from api/openapi.json's

@@ -480,6 +480,118 @@ func TestDo_NonEnvelopedErrorKeepsTheRawBody(t *testing.T) {
 	}
 }
 
+// Go forwards the Authorization header on a redirect to the same host whatever
+// the scheme or port, so following one would hand the API key to a plain-http
+// listener (https -> http) or to another service on the same machine. The client
+// never follows: a 3xx is an error that names where it pointed.
+func TestDo_NeverFollowsARedirectAndNeverForwardsTheKey(t *testing.T) {
+	for _, status := range []int{
+		http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther,
+		http.StatusTemporaryRedirect, http.StatusPermanentRedirect,
+	} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			var seenByTarget []string
+			target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				seenByTarget = append(seenByTarget, r.Header.Get("Authorization"))
+				_, _ = w.Write([]byte(`{"data":{"ok":true}}`))
+			}))
+			defer target.Close()
+			origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, target.URL+"/api/health", status)
+			}))
+			defer origin.Close()
+
+			c, err := NewClient(origin.URL, testKey)
+			if err != nil {
+				t.Fatalf("NewClient: %v", err)
+			}
+
+			resp, err := c.Do(context.Background(), http.MethodGet, "/api/health", nil, "acme")
+
+			if len(seenByTarget) != 0 {
+				t.Fatalf("the redirect was followed; the target saw Authorization %q", seenByTarget)
+			}
+			if err == nil {
+				t.Fatalf("a %d was returned as success: %+v", status, resp)
+			}
+			apiErr := asAPIError(t, err)
+			if apiErr.Code != "UNEXPECTED_REDIRECT" {
+				t.Errorf("Code = %q, want UNEXPECTED_REDIRECT", apiErr.Code)
+			}
+			if apiErr.HTTPStatus != status {
+				t.Errorf("HTTPStatus = %d, want %d", apiErr.HTTPStatus, status)
+			}
+			if !strings.Contains(apiErr.Message, "redirect") || !strings.Contains(apiErr.Message, target.URL) {
+				t.Errorf("message does not say where it pointed: %q", apiErr.Message)
+			}
+			if strings.Contains(apiErr.Message, testKey) {
+				t.Error("the message contains the API key")
+			}
+			if apiErr.RequestID == "" {
+				t.Error("RequestID is empty")
+			}
+			if got := ExitCodeFor(err); got != 1 {
+				t.Errorf("exit code = %d, want 1", got)
+			}
+		})
+	}
+}
+
+// The case the finding names: an https service redirecting to plain http.
+func TestDo_DoesNotFollowAnHTTPSToHTTPRedirect(t *testing.T) {
+	var targetHits int
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		targetHits++
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer target.Close()
+	origin := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/api/health", http.StatusFound)
+	}))
+	defer origin.Close()
+
+	c, err := NewClient(origin.URL, testKey)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	c.http.Transport = origin.Client().Transport // trust the test server's certificate
+
+	_, err = c.Do(context.Background(), http.MethodGet, "/api/health", nil, "acme")
+
+	if targetHits != 0 {
+		t.Fatalf("the https origin's redirect to plain http was followed (%d request(s) arrived)", targetHits)
+	}
+	if apiErr := asAPIError(t, err); apiErr.Code != "UNEXPECTED_REDIRECT" {
+		t.Errorf("Code = %q, want UNEXPECTED_REDIRECT", apiErr.Code)
+	}
+}
+
+// A Location can carry credentials in its userinfo; the message is printed and
+// pasted into tickets.
+func TestDo_RedirectMessageRedactsCredentialsInTheLocation(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://someone:hunter2@elsewhere.example.test/x", http.StatusFound)
+	})
+
+	_, err := c.Do(context.Background(), http.MethodGet, "/api/health", nil, "acme")
+	apiErr := asAPIError(t, err)
+	if strings.Contains(apiErr.Message, "hunter2") {
+		t.Errorf("message prints the Location's password: %q", apiErr.Message)
+	}
+	if !strings.Contains(apiErr.Message, "elsewhere.example.test") {
+		t.Errorf("message does not name the host it pointed at: %q", apiErr.Message)
+	}
+}
+
+func TestDo_ARedirectWithoutALocationIsStillAnError(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusMultipleChoices) })
+
+	_, err := c.Do(context.Background(), http.MethodGet, "/api/health", nil, "acme")
+	if apiErr := asAPIError(t, err); apiErr.Code != "UNEXPECTED_REDIRECT" || apiErr.HTTPStatus != 300 {
+		t.Errorf("err = %+v", apiErr)
+	}
+}
+
 func TestDo_ExitCodeMapping(t *testing.T) {
 	tests := []struct {
 		status   int

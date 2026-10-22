@@ -464,6 +464,32 @@ func TestServerErrorsMapToExitCodesAndCarryTheRequestID(t *testing.T) {
 	}
 }
 
+// The key must not travel with a redirect: the CLI stops at the 3xx, exits 1, and
+// the host the redirect named never hears from it.
+func TestRedirectIsNotFollowed(t *testing.T) {
+	t.Parallel()
+	target := newFakeAPI(t, healthOK)
+	origin := newFakeAPI(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.url()+r.URL.Path, http.StatusTemporaryRedirect)
+	})
+
+	res := cliRun(t, "", okEnv(origin), "health", "--tenant", "acme")
+
+	if res.exit != 1 {
+		t.Fatalf("exit = %d, want 1\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	if n := len(target.requests()); n != 0 {
+		t.Errorf("%d requests followed the redirect, carrying the key", n)
+	}
+	e := obj(t, res.doc(t), "error")
+	if e["code"] != "UNEXPECTED_REDIRECT" || e["http_status"] != float64(307) {
+		t.Errorf("error = %v", e)
+	}
+	if rid, _ := e["request_id"].(string); !uuidV4.MatchString(rid) {
+		t.Errorf("error.request_id = %q", rid)
+	}
+}
+
 func TestNetworkFailureExitsSix(t *testing.T) {
 	t.Parallel()
 	api := newFakeAPI(t, healthOK)

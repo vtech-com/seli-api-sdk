@@ -54,6 +54,9 @@ func TestExitCodeFor(t *testing.T) {
 		{"INSECURE_BASE_URL is 5", &APIError{Code: ErrInsecureBaseURL, HTTPStatus: 400}, 5},
 		{"API_URL_MISSING is 5", &APIError{Code: ErrAPIURLMissing, HTTPStatus: 400}, 5},
 		{"TENANT_REQUIRED is 5", &APIError{Code: ErrTenantRequired, HTTPStatus: 400}, 5},
+
+		// A 3xx is not followed and is not one of the mapped statuses: exit 1.
+		{"UNEXPECTED_REDIRECT is 1", &APIError{Code: ErrUnexpectedRedirect, HTTPStatus: 302}, 1},
 	}
 
 	for _, tt := range tests {
