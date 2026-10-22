@@ -20,7 +20,7 @@ job is to be *correct and small*, and this skill's job is to keep it that way as
    binary's `--help` is authoritative for flag spelling and behaviour. If an edit would duplicate
    help output, it is the wrong edit — delete rather than add.
 2. **Every concrete claim must trace to a source in this repo.** Exit codes to
-   `cmd/helpers.go:ExitCodeFor`. Tenant requirements to `api/openapi.json`. Field names and
+   `internal/api/errors.go:ExitCodeFor`. Tenant requirements to `api/openapi.json`. Field names and
    nullability to the spec schemas. See `references/ground-truth.md`.
 3. **Drift is bidirectional.** The skill can be stale (missing a new group), *and* it can be
    over-specified (asserting behaviour the CLI no longer has). Hunt both.

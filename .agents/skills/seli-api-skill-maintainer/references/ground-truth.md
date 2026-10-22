@@ -8,11 +8,11 @@ reading the skill — auditing prose against memory is how drift survives a sync
 | Claim in the skill | Authoritative source | Not authoritative |
 |---|---|---|
 | A command or flag exists, its spelling | the built binary's `--help` | `docs/project-context.md §5.4` |
-| Exit code meanings | `cmd/helpers.go` → `ExitCodeFor` | the skill's own prose |
-| Which endpoints require a tenant | `api/openapi.json` + the early-reject in `cmd/<group>.go` | `docs/project-context.md §5.3` (documented as drifted) |
+| Exit code meanings | `internal/api/errors.go` → `ExitCodeFor` | the skill's own prose |
+| Which endpoints require a tenant | `api/openapi.json` + `api.*RequiresTenant` / `requireTenant` in `cmd/<group>.go` | `docs/project-context.md §5.3` (documented as drifted) |
 | Field names, types, nullability, enums | `api/openapi.json` `components.schemas` | sample responses |
-| Output envelope shape | `cmd/helpers.go` (`envelope`, `writeEnvelopeWithMeta`) | — |
-| Pagination keys (`meta.pagination.total`, …) | the code that builds `meta` + spec response schema | — |
+| Output envelope shape, error object keys | `internal/output/json.go` (`envelope`, `Write`, `WritePartial`, `errorObject`), `cmd/meta.go` | — |
+| Pagination keys (`meta.pagination.total`, …) | the spec's response schema (inline under `paths`) + `cmd/meta.go` (`listMeta` passes the API's `meta` through) | — |
 | An endpoint exists but the CLI doesn't wrap it | `api/openapi.json` vs. the help tree | — |
 | An endpoint doesn't exist server-side | `docs/api-coverage-gaps.md` | absence from the CLI |
 
@@ -54,12 +54,14 @@ Diff spec paths against the help tree. Every path with no command is either a kn
 in `docs/api-coverage-gaps.md`) or a signal that `api-command-builder` has work to do — report it,
 don't paper over it in the skill.
 
-For a schema the skill describes (currently only members), re-derive fields and nullability:
+For a schema the skill describes (currently only members), re-derive fields and nullability.
+Success bodies are inline in the operation, not under `components.schemas`:
 
 ```bash
-jq -r '.components.schemas.Member as $s | ($s.required // []) as $req
+jq -r '.paths["/api/members/{id}"].get.responses["200"].content["application/json"].schema.properties.data as $s
+       | ($s.required // []) as $req
        | $s.properties | to_entries[]
-       | "\(.key)\t\(.value.type)\tnullable=\(.value.nullable // false)\trequired=\((.key|IN($req[])))"' \
+       | "\(.key)\t\(.value.type)\trequired=\((.key|IN($req[])))"' \
       api/openapi.json
 ```
 
@@ -74,7 +76,7 @@ jq -r '.paths[]? | to_entries[]? | select(.value.parameters?)
        | "required=\(.required)"' api/openapi.json
 
 # where the CLI rejects locally, before the request
-grep -rn "RequiresTenant\|resolveTenant\|failValidation" cmd/ internal/api/
+grep -rn "RequiresTenant\|resolveTenant\|requireTenant\|failValidation" cmd/ internal/api/
 ```
 
 A spec-optional endpoint that the CLI still rejects locally is a *CLI* behaviour the skill must
@@ -83,12 +85,15 @@ describe as such. Never describe the server's rule when the operator will actual
 ## 4. Exit codes
 
 ```bash
-sed -n '/func ExitCodeFor/,/^}/p' cmd/helpers.go
+sed -n '/func ExitCodeFor/,/^}/p' internal/api/errors.go
 ```
 
-Transcribe the mapping exactly. Today: 500+→6 (transport), 401→2, 403→3, 404→4, 400→5, 429→7,
-everything else→1. Any exit code the skill teaches must appear in that function, and any code the
-function maps that an operator would plausibly hit should be taught.
+Transcribe the mapping exactly. Today: a transport failure (`NETWORK_ERROR`, a deadline, any
+`net.Error`)→6, 401→2, 403→3, 404→4, 400 and 422→5, 409→8, 429→7, everything else→1 (HTTP 5xx
+included). Any exit code the skill teaches must appear in that function, and any code the
+function maps that an operator would plausibly hit should be taught. The local error codes
+(`TENANT_REQUIRED`, `AUTH_MISSING_HEADER`, `API_URL_MISSING`, `INSECURE_BASE_URL`, …) are the
+`Err*` constants in the same file.
 
 ## 5. Behaviour changes that leave no trace in `cmd/`
 

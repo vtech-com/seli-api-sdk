@@ -1,21 +1,30 @@
 {
-  "last_synced_commit": "b16e383319df328dcbba410730cfd3e5e904e8ee",
-  "last_synced_at": "2026-07-31",
-  "spec_sha256": "c900b2cae32ca82422a370487f9fc79dea84339311710c39161993c85310e8db",
+  "last_synced_commit": "a528eb1205ed5d06988e31d2e199b25bf28c14f2",
+  "last_synced_at": "2026-10-22",
+  "spec_sha256": "2ed5f0f0e9d082016d862aac431baafeb2d15c083948383953814cd7803050b5",
   "spec_paths": [
-    "GET /api/v1/health",
-    "GET /api/v1/members",
-    "GET /api/v1/members/{id}"
+    "GET /api/capabilities",
+    "GET /api/delivery/{code}",
+    "POST /api/delivery/{code}/label/100x150",
+    "POST /api/delivery/{code}/slip/a4",
+    "GET /api/health",
+    "GET /api/members",
+    "GET /api/members/{id}",
+    "GET /api/members/{id}/permissions",
+    "GET /api/roles",
+    "GET /api/roles/{id}"
   ],
   "cli_commands": [
     "health",
     "members list",
     "members get",
+    "auth login",
+    "auth logout",
     "config get",
     "config set",
     "config set-default-tenant",
     "config unset-default-tenant",
     "version"
   ],
-  "notes": "Baseline recorded when the seli-api-skill-maintainer skill was created; the shipped skill was not edited in this run. Verified against the build at this commit: exit-code table in cmd/helpers.go (500+ -> 6, 401 -> 2, 403 -> 3, 404 -> 4, 400 -> 5, 429 -> 7, else 1) matches SKILL.md section 1, and every spec path is wrapped by a command."
+  "notes": "Resynced after the client hardening (branch feat/client-hardening, plan 002). Verified against a fresh build: exit codes come from internal/api/errors.go ExitCodeFor (401 -> 2, 403 -> 3, 404 -> 4, 400/422 -> 5, 409 -> 8, 429 -> 7, a transport failure or NETWORK_ERROR -> 6, everything else including HTTP 5xx -> 1); the earlier 'HTTP 500+ -> 6' note was wrong. Seven spec operations are not wrapped by any command (members permissions, roles list/get, capabilities, delivery get/label/slip); plan 003 owns them, and the skill deliberately names none of them. The skill no longer states the Postgres RLS / owner-member capability claims that had no source in this repo, and the member domain reference no longer cites docs/api-coverage-gaps.md (a Capigo-era copy pending rewrite). Not verified live: the install guide anchor (README.md#installation) points at the repo README; no release is tagged yet, so the install script has nothing to download. The spec URL is documented as <host>/api/openapi from plan 002 and the Makefile's update-spec, not exercised here."
 }
