@@ -12,6 +12,51 @@
       }
     },
     "schemas": {
+      "DocumentExtraFieldsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "extraFields": {
+            "description": "Up to four label and value pairs the document prints, in order, under Thông tin thêm: on the label between the goods and the COD, on the slip after the goods table. Seli stores none of them. Leave it out, or send no body, for a document with none.",
+            "example": [
+              {
+                "label": "Khối lượng",
+                "value": "1.2 kg"
+              },
+              {
+                "label": "Kiện",
+                "value": "1/3"
+              }
+            ],
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "label": {
+                  "description": "Printed before the value, trimmed, 1–20 characters",
+                  "example": "Khối lượng",
+                  "maxLength": 20,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "value": {
+                  "description": "Printed after its label, trimmed, 1–60 characters",
+                  "example": "1.2 kg",
+                  "maxLength": 60,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "value"
+              ],
+              "type": "object"
+            },
+            "maxItems": 4,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "ErrorEnvelope": {
         "additionalProperties": false,
         "description": "Standard error envelope for all error responses",
@@ -83,11 +128,680 @@
   "info": {
     "description": "Seli Platform Public API — first-party REST surface. All endpoints require a valid ssk_ key and X-Tenant-Code header unless otherwise noted. The spec itself is public (no auth) and carries no tenant data, key, or JWT.",
     "title": "Platform API",
-    "version": "v1"
+    "version": "2026-10-21"
   },
   "openapi": "3.1.0",
   "paths": {
-    "/api/v1/health": {
+    "/api/capabilities": {
+      "get": {
+        "description": "Returns every capability key the product DECLARES, with its place axis, whether the responsibility axis applies, its function cluster, and whether it is that cluster's admin key. This is the declared vocabulary, NOT what is enforced today: the customers:, orders: and finance: keys are inert until their own domain epics build enforcement. Keys only — human labels live in each app, and this surface has no locale to speak. Identical for every tenant, complete in one response, never paginated.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XTenantCode"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "cluster": {
+                            "description": "Function cluster this key is declared in",
+                            "example": "iam",
+                            "type": "string"
+                          },
+                          "isClusterAdmin": {
+                            "description": "Whether holding this key covers every capability in its cluster, including ones declared later",
+                            "example": false,
+                            "type": "boolean"
+                          },
+                          "key": {
+                            "description": "Capability key",
+                            "example": "iam:members:view",
+                            "type": "string"
+                          },
+                          "scopeDimension": {
+                            "description": "Place axis: whether a grant of this capability is confined to a store",
+                            "enum": [
+                              "tenant",
+                              "store"
+                            ],
+                            "example": "tenant",
+                            "type": "string"
+                          },
+                          "supportsRecordRange": {
+                            "description": "Whether the responsibility axis ('all' vs 'assigned' records) means anything for this key",
+                            "example": false,
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "scopeDimension",
+                          "supportsRecordRange",
+                          "cluster",
+                          "isClusterAdmin"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The declared capability vocabulary"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized — missing, invalid, revoked, or expired API key"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found — the requested resource does not exist or is not accessible"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests — rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List declared capabilities",
+        "tags": [
+          "Permissions"
+        ]
+      }
+    },
+    "/api/delivery/{code}": {
+      "get": {
+        "description": "Returns one waybill: its code, order code, status, recipient, sender, money fields, note and timestamps. Money is an exact decimal string. The key's owner needs a waybill read key for the waybill's store. An unknown code, another tenant's code and a waybill the owner cannot read all return the same 404. Responses are never cached.",
+        "parameters": [
+          {
+            "description": "The waybill code, as the shipment's tracking number holds it (WB-{N})",
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "description": "The waybill code, as the shipment's tracking number holds it (WB-{N})",
+              "example": "WB-1317",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XTenantCode"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "codAmount": {
+                          "description": "Cash to collect on delivery, an exact decimal string",
+                          "example": "150000.50",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "code": {
+                          "description": "Waybill code",
+                          "example": "WB-1317",
+                          "type": "string"
+                        },
+                        "createdAt": {
+                          "description": "ISO 8601 timestamp when the waybill was created",
+                          "example": "2026-10-02T03:00:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "currencyCode": {
+                          "description": "ISO 4217 currency of every money field",
+                          "example": "VND",
+                          "type": "string"
+                        },
+                        "declaredValue": {
+                          "description": "Declared goods value, an exact decimal string",
+                          "example": "2500000",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "estimatedFee": {
+                          "description": "Estimated delivery fee, an exact decimal string",
+                          "example": "30000",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "feePayer": {
+                          "description": "Who pays the delivery fee",
+                          "enum": [
+                            "sender",
+                            "recipient",
+                            null
+                          ],
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "id": {
+                          "description": "Waybill identifier (UUID)",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "note": {
+                          "description": "Free-text note",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "orderCode": {
+                          "description": "Code of the order the waybill delivers",
+                          "example": "DH-2045",
+                          "type": "string"
+                        },
+                        "outboundId": {
+                          "description": "Seli outbound identifier the waybill was born from (UUID)",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "recipient": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "address": {
+                              "description": "Party address as printed on the delivery documents",
+                              "example": "12 Trần Hưng Đạo, 00004",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "name": {
+                              "description": "Party name",
+                              "example": "Nguyễn Thị Hoà",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "phone": {
+                              "description": "Party phone, digits with country code",
+                              "example": "84901234567",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "phone",
+                            "address"
+                          ],
+                          "type": "object"
+                        },
+                        "sender": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "address": {
+                              "description": "Party address as printed on the delivery documents",
+                              "example": "12 Trần Hưng Đạo, 00004",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "name": {
+                              "description": "Party name",
+                              "example": "Nguyễn Thị Hoà",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "phone": {
+                              "description": "Party phone, digits with country code",
+                              "example": "84901234567",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "phone",
+                            "address"
+                          ],
+                          "type": "object"
+                        },
+                        "status": {
+                          "description": "Waybill status",
+                          "example": "in_delivery",
+                          "type": "string"
+                        },
+                        "type": {
+                          "description": "Whether the goods are delivered or picked up",
+                          "enum": [
+                            "delivery",
+                            "pickup"
+                          ],
+                          "type": "string"
+                        },
+                        "updatedAt": {
+                          "description": "ISO 8601 timestamp of the last change",
+                          "example": "2026-10-03T03:00:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "code",
+                        "orderCode",
+                        "outboundId",
+                        "type",
+                        "status",
+                        "recipient",
+                        "sender",
+                        "currencyCode",
+                        "codAmount",
+                        "declaredValue",
+                        "feePayer",
+                        "estimatedFee",
+                        "note",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Waybill details"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized — missing, invalid, revoked, or expired API key"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found — the requested resource does not exist or is not accessible"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests — rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Get waybill by code",
+        "tags": [
+          "Delivery"
+        ]
+      }
+    },
+    "/api/delivery/{code}/label/100x150": {
+      "post": {
+        "description": "Returns a link to a waybill's 100 × 150 mm shipping label PDF, found by the waybill code. The link opens without a key and stops working after five minutes; asking again returns a fresh one. The key's owner needs a waybill read key for the waybill's store. A blank code, an unknown code, another tenant's code, and a waybill the owner cannot read all return the same 404. Responses are never cached. The optional body lists up to four extra fields the 100 × 150 mm shipping label prints between the goods and the COD, each whitespace run as one space. They are signed into the link and never stored. A body that is not a JSON object, has an unknown key, or breaks a limit returns 400 and no link.",
+        "parameters": [
+          {
+            "description": "The waybill code, as the shipment's tracking number holds it (WB-{N})",
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "description": "The waybill code, as the shipment's tracking number holds it (WB-{N})",
+              "example": "WB-1024",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XTenantCode"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentExtraFieldsRequest"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": {
+                    "expiresAt": "2026-10-08T03:05:00.000Z",
+                    "url": "https://acme.seli.vn/api/delivery/WB-1024/label/100x150/render?token=eyJ…"
+                  }
+                },
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "expiresAt": {
+                          "description": "ISO 8601 timestamp after which the link stops working",
+                          "example": "2026-10-08T03:05:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "url": {
+                          "description": "Absolute link to the PDF. It opens with no key, any number of times, until it expires.",
+                          "example": "https://acme.seli.vn/api/delivery/WB-1317/label/100x150/render?token=eyJ…",
+                          "format": "uri",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "url",
+                        "expiresAt"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A five-minute link to the PDF"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request — the body is invalid, and no link is issued"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized — missing, invalid, revoked, or expired API key"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found — the requested resource does not exist or is not accessible"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests — rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Issue a 100 × 150 mm shipping label link",
+        "tags": [
+          "Delivery"
+        ]
+      }
+    },
+    "/api/delivery/{code}/slip/a4": {
+      "post": {
+        "description": "Returns a link to a waybill's A4 delivery slip PDF, found by the waybill code. The link opens without a key and stops working after five minutes; asking again returns a fresh one. The key's owner needs a waybill read key for the waybill's store. A blank code, an unknown code, another tenant's code, and a waybill the owner cannot read all return the same 404. Responses are never cached. The optional body lists up to four extra fields the A4 delivery slip prints after the goods table, before the COD, each whitespace run as one space. They are signed into the link and never stored. A body that is not a JSON object, has an unknown key, or breaks a limit returns 400 and no link.",
+        "parameters": [
+          {
+            "description": "The waybill code, as the shipment's tracking number holds it (WB-{N})",
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "description": "The waybill code, as the shipment's tracking number holds it (WB-{N})",
+              "example": "WB-1024",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XTenantCode"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentExtraFieldsRequest"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": {
+                    "expiresAt": "2026-10-08T03:05:00.000Z",
+                    "url": "https://acme.seli.vn/api/delivery/WB-1024/slip/a4/render?token=eyJ…"
+                  }
+                },
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "expiresAt": {
+                          "description": "ISO 8601 timestamp after which the link stops working",
+                          "example": "2026-10-08T03:05:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "url": {
+                          "description": "Absolute link to the PDF. It opens with no key, any number of times, until it expires.",
+                          "example": "https://acme.seli.vn/api/delivery/WB-1317/label/100x150/render?token=eyJ…",
+                          "format": "uri",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "url",
+                        "expiresAt"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A five-minute link to the PDF"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request — the body is invalid, and no link is issued"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized — missing, invalid, revoked, or expired API key"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found — the requested resource does not exist or is not accessible"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests — rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Issue an A4 delivery slip link",
+        "tags": [
+          "Delivery"
+        ]
+      }
+    },
+    "/api/health": {
       "get": {
         "description": "Auth-path canary — returns a minimal { ok, timestamp } payload after passing the proxy auth boundary. Proves the auth path (key → proxy → ApiContext) is working end-to-end.",
         "parameters": [
@@ -167,7 +881,7 @@
         ]
       }
     },
-    "/api/v1/members": {
+    "/api/members": {
       "get": {
         "description": "Returns a paginated list of members for the resolved tenant. Supports filtering by status and cursor-free page-based pagination.",
         "parameters": [
@@ -431,7 +1145,7 @@
         ]
       }
     },
-    "/api/v1/members/{id}": {
+    "/api/members/{id}": {
       "get": {
         "description": "Returns a single member scoped to the resolved tenant. Both 'no such id' and 'that id is not in this tenant' return 404 (no existence leak — INV-3).",
         "parameters": [
@@ -633,11 +1347,738 @@
           "Members"
         ]
       }
+    },
+    "/api/members/{id}/permissions": {
+      "get": {
+        "description": "Returns a membership's role grants, grouped tenant-wide vs. per store, each grant carrying its role's status and the capabilities a store pin does NOT confine. Reading someone else's grants requires owner or iam:admin — not iam:members:view. A caller without it gets the same 404 as a membership id that does not exist, so a refusal cannot be told from a miss; an empty result is never a refusal. Only the caller's own permissions carry effectiveCapabilities. Responses are never cached.",
+        "parameters": [
+          {
+            "description": "Membership UUID — the id GET /api/members returns. Or the literal 'me' for the caller's own membership.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Membership UUID — the id GET /api/members returns. Or the literal 'me' for the caller's own membership.",
+              "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XTenantCode"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "byStore": {
+                          "description": "Grants pinned to a store, grouped by store",
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "grants": {
+                                "items": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "grantedAt": {
+                                      "description": "ISO 8601 timestamp when the grant was made",
+                                      "example": "2026-07-24T09:30:00.000Z",
+                                      "format": "date-time",
+                                      "type": "string"
+                                    },
+                                    "id": {
+                                      "description": "Unique identifier of this grant",
+                                      "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                                      "format": "uuid",
+                                      "type": "string"
+                                    },
+                                    "roleDescription": {
+                                      "description": "Role description at read time",
+                                      "example": "Runs one store day to day",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "roleId": {
+                                      "description": "Role granted",
+                                      "example": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+                                      "format": "uuid",
+                                      "type": "string"
+                                    },
+                                    "roleName": {
+                                      "description": "Role name at read time",
+                                      "example": "Store Manager",
+                                      "type": "string"
+                                    },
+                                    "roleStatus": {
+                                      "description": "A grant of an inactive role is real but currently resolves to nothing",
+                                      "enum": [
+                                        "active",
+                                        "inactive"
+                                      ],
+                                      "example": "active",
+                                      "type": "string"
+                                    },
+                                    "storeId": {
+                                      "description": "Store this grant is pinned to, or null when tenant-wide",
+                                      "example": null,
+                                      "format": "uuid",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "unconfinedCapabilities": {
+                                      "description": "Capabilities of this role that the store pin does NOT confine — they still reach the whole tenant. Always empty for a tenant-wide grant.",
+                                      "example": [
+                                        "iam:admin"
+                                      ],
+                                      "items": {
+                                        "type": "string"
+                                      },
+                                      "type": "array"
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "roleId",
+                                    "roleName",
+                                    "roleDescription",
+                                    "roleStatus",
+                                    "storeId",
+                                    "grantedAt",
+                                    "unconfinedCapabilities"
+                                  ],
+                                  "type": "object"
+                                },
+                                "type": "array"
+                              },
+                              "storeCode": {
+                                "description": "Store code, or null when the store is no longer live",
+                                "example": "HN01",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "storeId": {
+                                "description": "Store the grants below are pinned to",
+                                "example": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "storeName": {
+                                "description": "Store name, or null when the store is no longer live",
+                                "example": "Hanoi 01",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "storeId",
+                              "storeCode",
+                              "storeName",
+                              "grants"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "effectiveCapabilities": {
+                          "description": "Capability keys actually in effect, with each held '<domain>:admin' already folded over its cluster. Only the caller's own permissions can carry this: every resolver takes its subject from the authenticated user, so no read resolves another member's capabilities. Null means NOT RESOLVABLE HERE — never 'this member holds nothing'. Their grants and what each granted role declares are returned regardless.",
+                          "example": [
+                            "iam:members:view",
+                            "iam:admin"
+                          ],
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": [
+                            "array",
+                            "null"
+                          ]
+                        },
+                        "tenantWide": {
+                          "description": "Grants that reach the whole tenant",
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "grantedAt": {
+                                "description": "ISO 8601 timestamp when the grant was made",
+                                "example": "2026-07-24T09:30:00.000Z",
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              "id": {
+                                "description": "Unique identifier of this grant",
+                                "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "roleDescription": {
+                                "description": "Role description at read time",
+                                "example": "Runs one store day to day",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "roleId": {
+                                "description": "Role granted",
+                                "example": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "roleName": {
+                                "description": "Role name at read time",
+                                "example": "Store Manager",
+                                "type": "string"
+                              },
+                              "roleStatus": {
+                                "description": "A grant of an inactive role is real but currently resolves to nothing",
+                                "enum": [
+                                  "active",
+                                  "inactive"
+                                ],
+                                "example": "active",
+                                "type": "string"
+                              },
+                              "storeId": {
+                                "description": "Store this grant is pinned to, or null when tenant-wide",
+                                "example": null,
+                                "format": "uuid",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "unconfinedCapabilities": {
+                                "description": "Capabilities of this role that the store pin does NOT confine — they still reach the whole tenant. Always empty for a tenant-wide grant.",
+                                "example": [
+                                  "iam:admin"
+                                ],
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "roleId",
+                              "roleName",
+                              "roleDescription",
+                              "roleStatus",
+                              "storeId",
+                              "grantedAt",
+                              "unconfinedCapabilities"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "tenantWide",
+                        "byStore",
+                        "effectiveCapabilities"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The membership's permissions"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized — missing, invalid, revoked, or expired API key"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found — the requested resource does not exist or is not accessible"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests — rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Get a member's permissions",
+        "tags": [
+          "Permissions"
+        ]
+      }
+    },
+    "/api/roles": {
+      "get": {
+        "description": "Returns the resolved tenant's role catalog, each role with the capabilities it carries. Inactive roles are included and marked by default: a turned-off role is still held by its members but currently grants nothing. Narrow with ?status=active|inactive. Responses are never cached.",
+        "parameters": [
+          {
+            "description": "Page number (1-based, default: 1)",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "description": "Page number (1-based, default: 1)",
+              "example": "1",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Items per page (default: 20, max: 100)",
+            "in": "query",
+            "name": "pageSize",
+            "required": false,
+            "schema": {
+              "description": "Items per page (default: 20, max: 100)",
+              "example": "20",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by role status (active, inactive). Any other value is a 400.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "description": "Filter by role status (active, inactive). Any other value is a 400.",
+              "example": "active",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XTenantCode"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "capabilities": {
+                            "description": "Every capability this role carries",
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "key": {
+                                  "description": "Capability key as stored on the role",
+                                  "example": "iam:members:view",
+                                  "type": "string"
+                                },
+                                "recordRange": {
+                                  "description": "Responsibility axis: 'all' records, or only those the member is assigned",
+                                  "enum": [
+                                    "all",
+                                    "assigned"
+                                  ],
+                                  "example": "all",
+                                  "type": "string"
+                                },
+                                "scopeDimension": {
+                                  "description": "Place axis declared for this key in the capability registry. Null when the key is not declared.",
+                                  "enum": [
+                                    "tenant",
+                                    "store",
+                                    null
+                                  ],
+                                  "example": "tenant",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "key",
+                                "recordRange",
+                                "scopeDimension"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "createdAt": {
+                            "description": "ISO 8601 timestamp when the role was created",
+                            "example": "2026-07-24T09:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "description": {
+                            "description": "What the role is for",
+                            "example": "Runs one store day to day",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "id": {
+                            "description": "Unique role identifier (UUID)",
+                            "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "name": {
+                            "description": "Role name, unique within the tenant",
+                            "example": "Store Manager",
+                            "type": "string"
+                          },
+                          "status": {
+                            "description": "An inactive role is still held by its members but currently grants nothing",
+                            "enum": [
+                              "active",
+                              "inactive"
+                            ],
+                            "example": "active",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "description",
+                          "status",
+                          "createdAt",
+                          "capabilities"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "meta": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "pagination": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "page": {
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "pageSize": {
+                              "exclusiveMinimum": 0,
+                              "type": "integer"
+                            },
+                            "total": {
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "totalPages": {
+                              "minimum": 0,
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "page",
+                            "pageSize",
+                            "total",
+                            "totalPages"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "pagination"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Paginated role catalog"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized — missing, invalid, revoked, or expired API key"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found — the requested resource does not exist or is not accessible"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests — rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List roles",
+        "tags": [
+          "Permissions"
+        ]
+      }
+    },
+    "/api/roles/{id}": {
+      "get": {
+        "description": "Returns a single role with its capabilities. 'No such role', 'a role in another tenant' and a malformed id all return 404 (no existence leak — INV-3).",
+        "parameters": [
+          {
+            "description": "Role UUID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Role UUID",
+              "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XTenantCode"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "capabilities": {
+                          "description": "Every capability this role carries",
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "key": {
+                                "description": "Capability key as stored on the role",
+                                "example": "iam:members:view",
+                                "type": "string"
+                              },
+                              "recordRange": {
+                                "description": "Responsibility axis: 'all' records, or only those the member is assigned",
+                                "enum": [
+                                  "all",
+                                  "assigned"
+                                ],
+                                "example": "all",
+                                "type": "string"
+                              },
+                              "scopeDimension": {
+                                "description": "Place axis declared for this key in the capability registry. Null when the key is not declared.",
+                                "enum": [
+                                  "tenant",
+                                  "store",
+                                  null
+                                ],
+                                "example": "tenant",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "recordRange",
+                              "scopeDimension"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "createdAt": {
+                          "description": "ISO 8601 timestamp when the role was created",
+                          "example": "2026-07-24T09:30:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "description": {
+                          "description": "What the role is for",
+                          "example": "Runs one store day to day",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "id": {
+                          "description": "Unique role identifier (UUID)",
+                          "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "name": {
+                          "description": "Role name, unique within the tenant",
+                          "example": "Store Manager",
+                          "type": "string"
+                        },
+                        "status": {
+                          "description": "An inactive role is still held by its members but currently grants nothing",
+                          "enum": [
+                            "active",
+                            "inactive"
+                          ],
+                          "example": "active",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "description",
+                        "status",
+                        "createdAt",
+                        "capabilities"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Role details"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized — missing, invalid, revoked, or expired API key"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found — the requested resource does not exist or is not accessible"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests — rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Get role by ID",
+        "tags": [
+          "Permissions"
+        ]
+      }
     }
   },
   "servers": [
     {
-      "url": "https://api.seli.vn/api/v1"
+      "url": "https://api.seli.app"
     }
   ],
   "webhooks": {}

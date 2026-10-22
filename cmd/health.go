@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"os"
+
 	"github.com/spf13/cobra"
 	"github.com/vtech-com/seli-api-sdk/internal/api"
+	"github.com/vtech-com/seli-api-sdk/internal/output"
 )
 
 var healthCmd = &cobra.Command{
@@ -11,8 +14,8 @@ var healthCmd = &cobra.Command{
 	Long: `Auth-path canary — proves the API key and tenant resolve end-to-end.
 
 PURPOSE
-  Call GET /health. Not a general uptime check: it only confirms this CLI's
-  credentials and tenant are accepted by the server.
+  Call GET /api/health. Not a general uptime check: it only confirms this
+  CLI's credentials and tenant are accepted by the server.
 
 USAGE
   seli health [--tenant <code>]
@@ -25,23 +28,36 @@ FLAGS
       then SELI_TENANT, then config default_tenant. Exit 5 if none resolve.
 
 OUTPUT
-  { "data": { "ok": true, "timestamp": "2026-07-31T09:30:00.000Z" }, "meta": {} }
+  The server's reply is at .data; meta names the tenant the call resolved to
+  and where that came from (flag, env or config):
 
-  Exit 2 on auth failure, 7 on rate limit, 6 on network failure.`,
+      {
+        "data": { "ok": true, "timestamp": "2026-07-31T09:30:00.000Z" },
+        "meta": { "tenant": "acme", "tenant_source": "flag" }
+      }
+
+  Exit 2 on auth failure — including no API key configured, which is
+  diagnosed locally without contacting the server. Exit 3 if the key cannot
+  act for the tenant, 5 if no tenant or no API base URL resolves, 7 on rate
+  limit, 6 on network failure.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		t := resolveTenant()
-		if api.HealthRequiresTenant && t == "" {
-			fail(api.ErrTenantRequired, "no tenant resolved: pass --tenant, set SELI_TENANT, or run `seli config set-default-tenant`", 400)
+		client, cfg, err := buildClient()
+		if err != nil {
+			return handleErr(err)
 		}
 
-		client := api.NewClient()
+		t, source := resolveTenant(cfg)
+		if api.HealthRequiresTenant {
+			requireTenant(t)
+		}
+
 		health, err := client.GetHealth(cmd.Context(), t)
 		if err != nil {
-			failAPIError(err)
+			return handleErr(err)
 		}
 
-		return writeEnvelope(health)
+		return output.Write(os.Stdout, health, itemMeta(t, source))
 	},
 }
 
