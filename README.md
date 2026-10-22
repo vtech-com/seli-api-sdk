@@ -78,7 +78,7 @@ path. The first of these that is set wins:
 
 1. `--api-url`
 2. `SELI_API_URL`
-3. `api_url` in the active profile (`seli config set api_url https://<host>`)
+3. `api_url` in the active profile (`seli config set api_url https://<host>`; needs a profile, so run `seli auth login` first)
 4. the default baked into the binary at build time (`SELI_DEFAULT_API_URL`, set for release
    builds); `seli version` prints it as `default_api_url` (empty when the build has none)
 

@@ -85,6 +85,11 @@ All notable changes to this project will be documented in this file.
   points at it. The pages named none of them before.
 - The client refuses to read a response body over 16 MiB, and `members get`
   escapes the id in the request path.
+- Docs: the README, `docs/project-context.md`, the shipped `seli-api` agent skill
+  (with new evals) and the `api-command-builder` conventions now describe the
+  hardened CLI: `/api/...` paths, the host as configuration (`<host>`), the
+  `auth login` quickstart, exit codes 0–8, the error envelope, `meta.tenant_source`,
+  and the API's own `meta.pagination`.
 
 ### Added
 
