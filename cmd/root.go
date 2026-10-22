@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/vtech-com/seli-api-sdk/internal/api"
 )
 
 var (
@@ -29,7 +30,26 @@ USAGE
   seli [--api-url <url>] [--tenant <code>] [-v] <group> <command> [<args>]
 
   seli <group> --help          the commands in that group
-  seli <group> <cmd> --help    purpose, usage, flags, output`,
+  seli <group> <cmd> --help    purpose, usage, flags, output
+
+GETTING STARTED
+  Every command that reaches the API needs a key — which is all of them but
+  version, config, and auth login/logout. Store one once, name a default
+  tenant, then confirm the API accepts both:
+
+      $ seli auth login --key ssk_...
+      $ seli config set-default-tenant <code>
+      $ seli health
+
+  Until a key is configured the CLI does not contact the server at all: it
+  fails locally with exit 2 and AUTH_MISSING_HEADER, so nothing you read here
+  is an answer from the API. SELI_API_KEY, if set, overrides the stored key
+  and needs no login; SELI_TENANT does the same for the tenant.
+
+  The API host is configuration, not part of the CLI. It is the first of
+  --api-url, SELI_API_URL, the profile's api_url, and the default baked into
+  your build of the binary (seli version prints it). If none is set the CLI
+  fails locally with exit 5 and API_URL_MISSING.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }
@@ -39,17 +59,19 @@ func Execute() {
 	// subcommands (main.go calls Execute() only after package init completes).
 	enableUnknownSubcommandErrors(rootCmd)
 	if err := rootCmd.Execute(); err != nil {
-		wrapped := &CLIError{Code: "VALIDATION_ERROR", Message: err.Error(), HTTPStatus: 400}
+		// Wrap cobra arg-validation errors so they render through the output
+		// formatter and map to exit code 5.
+		wrapped := &api.APIError{Code: api.ErrValidation, Message: err.Error(), HTTPStatus: 400}
 		renderCLIError(wrapped)
-		os.Exit(ExitCodeFor(wrapped))
+		os.Exit(api.ExitCodeFor(wrapped))
 	}
 }
 
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", "", "override the API base URL")
-	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "print the HTTP request and response (key redacted)")
+	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", "", "override the API base URL (host only, https)")
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "trace the HTTP request and response on stderr (key redacted)")
 	rootCmd.PersistentFlags().StringVar(&tenant, "tenant", "", "tenant code to scope the request to")
 
 	_ = viper.BindEnv("api_key", "SELI_API_KEY")

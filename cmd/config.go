@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/vtech-com/seli-api-sdk/internal/config"
+	"github.com/vtech-com/seli-api-sdk/internal/output"
 )
 
 // configNotFoundErr exits with code 4 (not found) via the standard error path.
@@ -46,15 +48,20 @@ FLAGS
   <value>
       The value to store. Positional, required.
 
-        seli config set api_url https://api.seli.app/v1
+        seli config set api_url https://<seli-platform-host>
         seli config set default_profile staging
+
+      api_url is the host only, with no path: the CLI adds each endpoint's
+      /api/... path itself. It is the profile layer of the base URL order
+      --api-url, SELI_API_URL, then this value, then the default baked into
+      the binary (shown by seli version).
 
 OUTPUT
   Nothing on success: exit 0 and silence. Confirm with config get <key>.
 
   Exit 5 for an unrecognised key, or when default_profile names a profile
   that does not exist. Exit 4 when api_url is set before any profile exists —
-  run auth login first.`,
+  run seli auth login --key <ssk_...> first, which creates the profile.`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		key, value := args[0], args[1]
@@ -157,7 +164,7 @@ OUTPUT
 			failValidation("unknown key %q; supported: api_url, default_profile, default_tenant", key)
 		}
 
-		return writeEnvelope(map[string]string{"key": key, "value": value})
+		return output.Write(os.Stdout, map[string]string{"key": key, "value": value}, output.Meta{})
 	},
 }
 

@@ -1,13 +1,20 @@
 package cmd
 
 import (
+	"os"
 	"regexp"
 
 	"github.com/spf13/cobra"
 	"github.com/vtech-com/seli-api-sdk/internal/api"
+	"github.com/vtech-com/seli-api-sdk/internal/output"
 )
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+const (
+	membersMaxPageSize = 100 // the API's maximum pageSize
+	membersAllPageSize = 100 // --all fetches pages this big unless --page-size says otherwise
+)
 
 var membersCmd = &cobra.Command{
 	Use:   "members",
@@ -31,7 +38,7 @@ var membersListCmd = &cobra.Command{
 	Long: `List members for the resolved tenant.
 
 PURPOSE
-  Call GET /members. Page-based pagination; optional status filter.
+  Call GET /api/members. Page-based pagination; optional status filter.
 
 USAGE
   seli members list [--tenant <code>] [--page N] [--page-size N] [--status active|inactive] [--all]
@@ -46,8 +53,8 @@ FLAGS
       Page number, 1-based. Default 1.
 
   --page-size N
-      Items per page, 1-100. Default 20; values above 100 are capped before
-      the request is sent.
+      Items per page, 1-100. Default 20 (100 with --all); values above 100
+      are capped before the request is sent.
 
   --status active|inactive
       Filter by membership status. Omitted by default (all statuses).
@@ -57,55 +64,61 @@ FLAGS
       concatenating results. --page is ignored when --all is set.
 
 OUTPUT
-  { "data": [ <member>, ... ], "meta": { "pagination": { "page", "pageSize", "total", "totalPages" } } }
+  The members are at .data. meta names the tenant the call resolved to and
+  where that came from (flag, env or config), followed by the API's own
+  pagination object, exactly as the API sent it:
 
-  With --all, meta reflects the last page fetched.`,
+      {
+        "data": [ <member>, ... ],
+        "meta": {
+          "tenant": "acme", "tenant_source": "flag",
+          "pagination": { "page": 1, "pageSize": 20, "total": 42, "totalPages": 3 }
+        }
+      }
+
+  With --all, meta.pagination reflects the last page fetched.
+
+  If --all fails after at least one page was fetched, stdout still holds one
+  document: the rows fetched so far at .data, and an "error" key above them.
+  The exit code is non-zero, so test for the error key before trusting the
+  rows as complete.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		t := resolveTenant()
-		if api.MembersRequiresTenant && t == "" {
-			fail(api.ErrTenantRequired, "no tenant resolved: pass --tenant, set SELI_TENANT, or run `seli config set-default-tenant`", 400)
+		client, cfg, err := buildClient()
+		if err != nil {
+			return handleErr(err)
+		}
+
+		t, source := resolveTenant(cfg)
+		if api.MembersRequiresTenant {
+			requireTenant(t)
 		}
 
 		pageSize := membersListPageSize
-		if pageSize > 100 {
-			pageSize = 100
+		if membersListAll && !cmd.Flags().Changed("page-size") {
+			pageSize = membersAllPageSize
 		}
-
-		client := api.NewClient()
+		if pageSize > membersMaxPageSize {
+			pageSize = membersMaxPageSize
+		}
+		params := api.ListMembersParams{Page: membersListPage, PageSize: pageSize, Status: membersListStatus}
 
 		if !membersListAll {
-			members, meta, err := client.ListMembers(cmd.Context(), t, api.ListMembersParams{
-				Page:     membersListPage,
-				PageSize: pageSize,
-				Status:   membersListStatus,
-			})
+			page, err := client.ListMembers(cmd.Context(), t, params)
 			if err != nil {
-				failAPIError(err)
+				return handleErr(err)
 			}
-			return writeEnvelopeWithMeta(members, meta)
+			return output.Write(os.Stdout, page.Members, listMeta(t, source, page.Meta))
 		}
 
-		var all []api.Member
-		var lastMeta *api.MembersMeta
-		page := 1
-		for {
-			members, meta, err := client.ListMembers(cmd.Context(), t, api.ListMembersParams{
-				Page:     page,
-				PageSize: pageSize,
-				Status:   membersListStatus,
-			})
-			if err != nil {
-				failAPIError(err)
+		page, err := client.ListAllMembers(cmd.Context(), t, params)
+		if err != nil {
+			if page != nil {
+				return failWithData(err, page.Members, listMeta(t, source, page.Meta))
 			}
-			all = append(all, members...)
-			lastMeta = meta
-			if page >= meta.Pagination.TotalPages {
-				break
-			}
-			page++
+			return handleErr(err)
 		}
-		return writeEnvelopeWithMeta(all, lastMeta)
+		return output.Write(os.Stdout, page.Members, listMeta(t, source, page.Meta))
 	},
 }
 
@@ -115,7 +128,7 @@ var membersGetCmd = &cobra.Command{
 	Long: `Get a single member by UUID.
 
 PURPOSE
-  Call GET /members/{id}. Both "no such id" and "id in another tenant"
+  Call GET /api/members/{id}. Both "no such id" and "id in another tenant"
   return 404 — the API does not leak existence across tenants.
 
 USAGE
@@ -131,7 +144,7 @@ FLAGS
       members list. Exit 5 if none resolve.
 
 OUTPUT
-  { "data": <member>, "meta": {} }
+  { "data": <member>, "meta": { "tenant": "acme", "tenant_source": "flag" } }
 
   Exit 4 if the id doesn't exist or isn't in the resolved tenant.`,
 	Args: cobra.ExactArgs(1),
@@ -141,18 +154,22 @@ OUTPUT
 			fail(api.ErrInvalidMemberID, "member id must be a UUID, got "+id, 400)
 		}
 
-		t := resolveTenant()
-		if api.MembersRequiresTenant && t == "" {
-			fail(api.ErrTenantRequired, "no tenant resolved: pass --tenant, set SELI_TENANT, or run `seli config set-default-tenant`", 400)
+		client, cfg, err := buildClient()
+		if err != nil {
+			return handleErr(err)
 		}
 
-		client := api.NewClient()
+		t, source := resolveTenant(cfg)
+		if api.MembersRequiresTenant {
+			requireTenant(t)
+		}
+
 		member, err := client.GetMember(cmd.Context(), t, id)
 		if err != nil {
-			failAPIError(err)
+			return handleErr(err)
 		}
 
-		return writeEnvelope(member)
+		return output.Write(os.Stdout, member, itemMeta(t, source))
 	},
 }
 
