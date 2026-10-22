@@ -123,6 +123,137 @@ func TestAtomicWriteTmpAbsent(t *testing.T) {
 	}
 }
 
+func dirEntries(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
+}
+
+// The temp file used to have a fixed name next to the config. Anyone able to
+// plant a symlink there made Save write the config — API key included — through
+// it, to a file of their choosing.
+func TestSaveNeverWritesThroughAPlantedTempSymlink(t *testing.T) {
+	path := withTempConfig(t)
+	dir := filepath.Dir(path)
+
+	victim := filepath.Join(t.TempDir(), "victim.txt")
+	if err := os.WriteFile(victim, []byte("untouched"), 0o600); err != nil {
+		t.Fatalf("write victim: %v", err)
+	}
+	for _, name := range []string{path + ".tmp", filepath.Join(dir, ".config.json.tmp"), filepath.Join(dir, "config.tmp")} {
+		if err := os.Symlink(victim, name); err != nil {
+			t.Skipf("cannot create symlinks here: %v", err)
+		}
+	}
+
+	cfg := &Config{Version: schemaVersion, Profiles: map[string]Profile{"default": {APIKey: "ssk_secret_value"}}, ActiveProfile: "default"}
+	if err := Save(cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := os.ReadFile(victim)
+	if err != nil {
+		t.Fatalf("read victim: %v", err)
+	}
+	if string(got) != "untouched" {
+		t.Errorf("Save wrote through a symlink at a predictable temp name: victim now holds %q", got)
+	}
+	loaded, err := Load()
+	if err != nil || loaded.Profiles["default"].APIKey != "ssk_secret_value" {
+		t.Errorf("the config was not saved: %v / %+v", err, loaded)
+	}
+}
+
+// A stale file at the old fixed temp name is none of Save's business.
+func TestSaveLeavesAStaleLegacyTempFileAlone(t *testing.T) {
+	path := withTempConfig(t)
+	if err := os.WriteFile(path+".tmp", []byte("stale"), 0o644); err != nil {
+		t.Fatalf("write stale file: %v", err)
+	}
+
+	cfg := &Config{Version: schemaVersion, Profiles: map[string]Profile{"default": {APIKey: "ssk_x"}}, ActiveProfile: "default"}
+	if err := Save(cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if b, err := os.ReadFile(path + ".tmp"); err != nil || string(b) != "stale" {
+		t.Errorf("the stale file was disturbed: %q / %v", b, err)
+	}
+}
+
+// Whether Save succeeds or fails, it leaves nothing but the config behind.
+func TestSaveLeavesNoTempFileBehind(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		path := withTempConfig(t)
+		cfg := &Config{Version: schemaVersion, Profiles: map[string]Profile{"default": {APIKey: "ssk_x"}}, ActiveProfile: "default"}
+		for i := 0; i < 3; i++ {
+			if err := Save(cfg); err != nil {
+				t.Fatalf("Save: %v", err)
+			}
+		}
+		if got := dirEntries(t, filepath.Dir(path)); len(got) != 1 || got[0] != "config.json" {
+			t.Errorf("directory holds %v, want only config.json", got)
+		}
+	})
+
+	t.Run("failure", func(t *testing.T) {
+		path := withTempConfig(t)
+		// A non-empty directory where the file belongs makes the rename fail.
+		if err := os.MkdirAll(filepath.Join(path, "occupied"), 0o700); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		cfg := &Config{Version: schemaVersion, Profiles: map[string]Profile{"default": {APIKey: "ssk_x"}}, ActiveProfile: "default"}
+
+		if err := Save(cfg); err == nil {
+			t.Fatal("Save succeeded over a directory")
+		}
+		if got := dirEntries(t, filepath.Dir(path)); len(got) != 1 || got[0] != "config.json" {
+			t.Errorf("directory holds %v after a failed Save, want only the planted directory", got)
+		}
+	})
+}
+
+// MkdirAll leaves an existing directory as it found it, so a ~/.seli created
+// earlier with 0755 stayed listable and, if group-writable, replaceable.
+func TestSaveTightensAnExistingConfigDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits")
+	}
+	dir := filepath.Join(t.TempDir(), ".seli")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil { // beat the umask
+		t.Fatalf("chmod: %v", err)
+	}
+	path := filepath.Join(dir, "config.json")
+	orig := ConfigPath
+	ConfigPath = func() (string, error) { return path, nil }
+	t.Cleanup(func() { ConfigPath = orig })
+
+	cfg := &Config{Version: schemaVersion, Profiles: map[string]Profile{"default": {APIKey: "ssk_x"}}, ActiveProfile: "default"}
+	if err := Save(cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat dir: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Errorf("config dir mode = %04o, want 0700", got)
+	}
+	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
+		t.Errorf("config file mode = %04o, want 0600", info.Mode().Perm())
+	}
+}
+
 func TestSetProfileSuccess(t *testing.T) {
 	withTempConfig(t)
 
