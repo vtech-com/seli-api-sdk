@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `SECURITY.md` sent vulnerability reports to an email on a domain that belongs to
+  an unrelated site, and said 0.x releases are unsupported. Reports now go
+  through GitHub private vulnerability reporting, and the latest release is the
+  supported one. Package `homepage` / `maintainer` come from the `SELI_HOMEPAGE`
+  / `SELI_MAINTAINER` repository variables instead of being hardcoded.
 - **Every API call was broken.** The base URL ended in `/api/v1` and the paths
   were `/health` and `/members`, but the service answers on `/api/health`,
   `/api/members` and `/api/members/{id}` — `/api/v1/*` is a 404. The base URL is

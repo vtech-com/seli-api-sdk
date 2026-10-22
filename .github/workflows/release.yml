@@ -36,6 +36,9 @@ jobs:
       - name: Require the default API URL
         env:
           SELI_DEFAULT_API_URL: ${{ vars.SELI_DEFAULT_API_URL }}
+          # Optional; .goreleaser.yml falls back to the GitHub repo when unset.
+          SELI_HOMEPAGE: ${{ vars.SELI_HOMEPAGE }}
+          SELI_MAINTAINER: ${{ vars.SELI_MAINTAINER }}
         run: |
           if [ -z "$SELI_DEFAULT_API_URL" ]; then
             echo "::error::repository variable SELI_DEFAULT_API_URL is not set; set it (Settings > Secrets and variables > Actions > Variables) to the API base URL, https://<host> with no path, and re-run"

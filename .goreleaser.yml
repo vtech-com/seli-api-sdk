@@ -48,8 +48,11 @@ nfpms:
     formats:
       - deb
     vendor: VTech
-    homepage: "https://seli.app"
-    maintainer: "VTech <dev@seli.app>"
+    # Contacts are configuration, like the API host: the domain will change, so
+    # release.yml supplies them from repository variables. The fallbacks name no
+    # domain at all.
+    homepage: '{{ envOrDefault "SELI_HOMEPAGE" "https://github.com/vtech-com/seli-api-sdk" }}'
+    maintainer: '{{ envOrDefault "SELI_MAINTAINER" "VTech <https://github.com/vtech-com/seli-api-sdk>" }}'
     description: "CLI tool and Go SDK for the Seli platform"
     license: MIT
     bindir: /usr/bin
