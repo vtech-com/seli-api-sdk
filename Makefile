@@ -23,7 +23,7 @@ LDFLAGS := -ldflags "\
 DIST_DIR := dist
 BINARY   := $(DIST_DIR)/seli
 
-.PHONY: build test lint check fmt release-snapshot install clean update-spec
+.PHONY: build test lint check fmt release-snapshot install clean update-spec verify-api
 
 build:
 	@mkdir -p $(DIST_DIR)
@@ -58,3 +58,17 @@ update-spec:
 	curl -fsSL "$(SELI_SPEC_URL)" | \
 		python3 -c "import json,sys; json.dump(json.load(sys.stdin), open('api/openapi.json','w'), indent=2, ensure_ascii=False); open('api/openapi.json','a').write(chr(10))"
 	@echo "Updated api/openapi.json from $(SELI_SPEC_URL) (pretty-printed)"
+
+## verify-api: Call a running API and compare its answers with what we claim
+## Every Go guard in this repo checks the CLI against api/openapi.json. This one
+## checks the document, and the help pages, against the server. It calls every
+## GET in the spec that needs no path parameter and reports MISSING / EXTRA /
+## STATUS against the response schema, then checks that each wrapped command's
+## help OUTPUT names every field the API returned. Read-only: GET only, nothing
+## is created. Reads SELI_API_URL (host only), SELI_API_KEY and SELI_TENANT from
+## the environment and never prints the key:
+##   SELI_API_URL=https://<seli-platform-host> SELI_API_KEY=ssk_... \
+##   SELI_TENANT=<code> make verify-api
+## Builds the binary first, so the help pages checked are this tree's.
+verify-api: build
+	@python3 scripts/verify_api.py --cli $(BINARY)
