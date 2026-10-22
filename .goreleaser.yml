@@ -20,6 +20,12 @@ builds:
       - -X github.com/vtech-com/seli-api-sdk/internal/version.Version={{.Version}}
       - -X github.com/vtech-com/seli-api-sdk/internal/version.Commit={{.Commit}}
       - -X github.com/vtech-com/seli-api-sdk/internal/version.Date={{.Date}}
+      # The API host is configuration, never code: it comes from the environment
+      # (release.yml passes the repository variable SELI_DEFAULT_API_URL and fails
+      # before building if it is empty). envOrDefault lets a local
+      # `make release-snapshot` build without it, yielding a binary that needs
+      # --api-url or SELI_API_URL at runtime.
+      - -X github.com/vtech-com/seli-api-sdk/internal/version.DefaultAPIURL={{ envOrDefault "SELI_DEFAULT_API_URL" "" }}
 
 archives:
   - id: seli

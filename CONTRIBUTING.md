@@ -54,6 +54,7 @@ make test            # Run unit tests
 make lint            # Run golangci-lint
 make fmt             # Format code (gofmt)
 make check           # lint + test (run before pushing)
+make update-spec     # Refresh api/openapi.json from $SELI_SPEC_URL (or $SELI_DEFAULT_API_URL/api/openapi)
 make clean           # Remove build artifacts
 ```
 
