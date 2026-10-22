@@ -61,7 +61,10 @@ FLAGS
 
   --all
       Auto-paginate: repeat the request until page == meta.pagination.totalPages,
-      concatenating results. --page is ignored when --all is set.
+      concatenating results. --page is ignored when --all is set. It stops
+      with an error after 1000 pages (PAGE_LIMIT_EXCEEDED; narrow the list with
+      --status), and fails if a reply carries no meta.pagination, since it
+      could not tell where the last page is.
 
 OUTPUT
   The members are at .data. meta names the tenant the call resolved to and
@@ -78,10 +81,10 @@ OUTPUT
 
   With --all, meta.pagination reflects the last page fetched.
 
-  If --all fails after at least one page was fetched, stdout still holds one
-  document: the rows fetched so far at .data, and an "error" key above them.
-  The exit code is non-zero, so test for the error key before trusting the
-  rows as complete.`,
+  If --all fails after at least one page was fetched, or stops at the page cap,
+  stdout still holds one document: the rows fetched so far at .data, and an
+  "error" key above them. The exit code is non-zero, so test for the error key
+  before trusting the rows as complete.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// A zero or negative value is not "use the default": ListMembers omits it

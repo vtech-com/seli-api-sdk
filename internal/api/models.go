@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -46,12 +47,22 @@ type Pagination struct {
 // MembersPage is one page of GET /api/members.
 type MembersPage struct {
 	Members []Member
-	// Pagination is meta.pagination decoded, for the loop that pages.
+	// Pagination is meta.pagination decoded, for the loop that pages. It is the
+	// zero value when the response carried none; hasPagination tells the two apart.
 	Pagination Pagination
 	// Meta is the API's own meta object, verbatim. The command prints it, so a
 	// key the API adds to meta reaches the caller without a release here.
 	Meta json.RawMessage
+
+	hasPagination bool      // meta.pagination was present and not null
+	resp          *Response // the reply this page was decoded from, for error reporting
 }
+
+// maxAllPages is the most pages ListAllMembers will fetch: 1000 pages of 100 is
+// 100000 members. It trusts the server's totalPages to know when to stop, and a
+// server (or a bug) that reports an enormous one must not make a command an
+// unbounded loop.
+const maxAllPages = 1000
 
 type healthEnvelope struct {
 	Data Health `json:"data"`
@@ -81,7 +92,9 @@ type membersListEnvelope struct {
 }
 
 type membersListMeta struct {
-	Pagination Pagination `json:"pagination"`
+	// A pointer, so an absent or null pagination is not mistaken for a real
+	// {page: 0, totalPages: 0} — which would read as "that was the last page".
+	Pagination *Pagination `json:"pagination"`
 }
 
 // ListMembersParams are the GET /api/members query parameters. Zero values
@@ -119,13 +132,16 @@ func (c *Client) ListMembers(ctx context.Context, tenant string, params ListMemb
 	if err := json.Unmarshal(resp.Body, &env); err != nil {
 		return nil, malformedBody(resp, err)
 	}
-	page := &MembersPage{Members: env.Data, Meta: env.Meta}
+	page := &MembersPage{Members: env.Data, Meta: env.Meta, resp: resp}
 	if len(env.Meta) > 0 {
 		var meta membersListMeta
 		if err := json.Unmarshal(env.Meta, &meta); err != nil {
 			return nil, malformedBody(resp, err)
 		}
-		page.Pagination = meta.Pagination
+		if meta.Pagination != nil {
+			page.Pagination = *meta.Pagination
+			page.hasPagination = true
+		}
 	}
 	return page, nil
 }
@@ -135,10 +151,14 @@ func (c *Client) ListMembers(ctx context.Context, tenant string, params ListMemb
 // member fetched, and the meta and pagination of the last page.
 //
 // It is the one place a request loop is allowed: it exists because the caller
-// asked for --all, and it stops at totalPages. A failure after at least one page
-// returns the pages fetched so far together with the error, so the caller can
-// show what it has instead of discarding it; a failure on page 1 returns a nil
-// page.
+// asked for --all, it stops at totalPages, and it never fetches more than
+// maxAllPages pages. A failure after at least one page returns the pages fetched
+// so far together with the error, so the caller can show what it has instead of
+// discarding it; a failure on page 1 returns a nil page.
+//
+// Two conditions are errors, not quiet stops, because stopping would pass a
+// prefix off as the whole list: a response with no meta.pagination (the loop
+// cannot tell where the last page is), and a list longer than the page cap.
 func (c *Client) ListAllMembers(ctx context.Context, tenant string, params ListMembersParams) (*MembersPage, error) {
 	var all *MembersPage
 	for page := 1; ; page++ {
@@ -153,10 +173,41 @@ func (c *Client) ListAllMembers(ctx context.Context, tenant string, params ListM
 			all.Members = append(all.Members, p.Members...)
 			all.Pagination = p.Pagination
 			all.Meta = p.Meta
+			all.hasPagination = p.hasPagination
+			all.resp = p.resp
+		}
+		if !p.hasPagination {
+			return all, noPaginationError(p.resp)
 		}
 		if page >= p.Pagination.TotalPages {
 			return all, nil
 		}
+		if page >= maxAllPages {
+			return all, pageCapError(p)
+		}
+	}
+}
+
+// noPaginationError is the error for a list reply that has no meta.pagination
+// during a sweep, which needs it to know when to stop.
+func noPaginationError(resp *Response) *APIError {
+	return &APIError{
+		Code:       ErrNetwork,
+		Message:    "malformed response body: it has no meta.pagination, so --all cannot tell where the last page is; the rows fetched so far are returned",
+		RequestID:  resp.RequestID,
+		HTTPStatus: resp.StatusCode,
+		RawBody:    resp.Body,
+	}
+}
+
+// pageCapError is the error for a sweep that reached maxAllPages with pages
+// still to go.
+func pageCapError(last *MembersPage) *APIError {
+	return &APIError{
+		Code: ErrPageLimit,
+		Message: fmt.Sprintf("stopped after %d pages: the API reports %d pages (%d members in all). The rows fetched so far are returned; narrow the list with --status, or read further pages with --page",
+			maxAllPages, last.Pagination.TotalPages, last.Pagination.Total),
+		RequestID: last.resp.RequestID,
 	}
 }
 

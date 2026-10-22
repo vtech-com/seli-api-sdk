@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -210,6 +212,126 @@ func TestListAllMembersFailureOnPageOneReturnsNoPage(t *testing.T) {
 	}
 	if page != nil {
 		t.Errorf("page = %+v, want nil: nothing was fetched", page)
+	}
+}
+
+const oneMemberJSON = `{"id":"m1","userId":"u","level":"member","status":"active","createdAt":"t","displayName":null,"avatarUrl":null,"contactEmail":null,"contactPhone":null,"jobTitle":null,"department":null,"memberCode":null}`
+
+// --all trusts the server's totalPages to know when to stop. A server (or a bug)
+// that reports an enormous one must not turn a command into an unbounded loop:
+// the sweep stops at a hard page cap and hands back what it has, with an error.
+func TestListAllMembersStopsAtAHardPageCap(t *testing.T) {
+	var requests atomic.Int64
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		// A backstop so that code without a cap ends here, not after 100000 pages.
+		if requests.Add(1) > 1500 {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":{"code":"E0000_UNKNOWN","message":"backstop"}}`))
+			return
+		}
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		_, _ = fmt.Fprintf(w, `{"data":[%s],"meta":{"pagination":{"page":%d,"pageSize":1,"total":100000,"totalPages":100000}}}`, oneMemberJSON, page)
+	})
+
+	page, err := c.ListAllMembers(context.Background(), "acme", ListMembersParams{PageSize: 1})
+
+	if err == nil {
+		t.Fatal("a sweep over 100000 pages returned without an error")
+	}
+	apiErr := asAPIError(t, err)
+	if apiErr.Code != "PAGE_LIMIT_EXCEEDED" {
+		t.Errorf("Code = %q, want PAGE_LIMIT_EXCEEDED (err: %v)", apiErr.Code, err)
+	}
+	if got := requests.Load(); got != 1000 {
+		t.Errorf("%d requests were made, want exactly the cap of 1000", got)
+	}
+	if page == nil || len(page.Members) != 1000 {
+		n := -1
+		if page != nil {
+			n = len(page.Members)
+		}
+		t.Fatalf("partial result has %d members, want the 1000 fetched before the cap", n)
+	}
+	if page.Pagination.Page != 1000 {
+		t.Errorf("Pagination.Page = %d, want the last page fetched (1000)", page.Pagination.Page)
+	}
+	if apiErr.RequestID == "" {
+		t.Error("RequestID is empty")
+	}
+	if got := ExitCodeFor(err); got != 1 {
+		t.Errorf("exit code = %d, want 1", got)
+	}
+}
+
+// Exactly the cap's worth of pages is a complete answer, not a truncated one.
+func TestListAllMembersAtExactlyTheCapIsComplete(t *testing.T) {
+	var seen []int
+	c := pagesServer(t, 1000, 1, 0, 0, &seen)
+
+	page, err := c.ListAllMembers(context.Background(), "acme", ListMembersParams{PageSize: 1})
+	if err != nil {
+		t.Fatalf("ListAllMembers over exactly 1000 pages: %v", err)
+	}
+	if len(page.Members) != 1000 {
+		t.Errorf("members = %d, want 1000", len(page.Members))
+	}
+}
+
+// Without meta.pagination the loop cannot tell where the last page is. Stopping
+// silently would pass a prefix off as the whole list.
+func TestListAllMembersFailsWhenThePaginationIsMissing(t *testing.T) {
+	bodies := map[string]string{
+		"no meta":             `{"data":[` + oneMemberJSON + `]}`,
+		"empty meta":          `{"data":[` + oneMemberJSON + `],"meta":{}}`,
+		"null meta":           `{"data":[` + oneMemberJSON + `],"meta":null}`,
+		"null pagination":     `{"data":[` + oneMemberJSON + `],"meta":{"pagination":null}}`,
+		"only unrelated keys": `{"data":[` + oneMemberJSON + `],"meta":{"other":1}}`,
+	}
+	for name, body := range bodies {
+		t.Run(name, func(t *testing.T) {
+			var requests atomic.Int64
+			c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				_, _ = w.Write([]byte(body))
+			})
+
+			page, err := c.ListAllMembers(context.Background(), "acme", ListMembersParams{})
+
+			if err == nil {
+				t.Fatal("--all stopped silently on a response with no pagination")
+			}
+			apiErr := asAPIError(t, err)
+			if !strings.Contains(apiErr.Message, "pagination") {
+				t.Errorf("message does not say what is missing: %q", apiErr.Message)
+			}
+			if apiErr.RequestID == "" || string(apiErr.RawBody) != body {
+				t.Errorf("request id %q / raw body %q", apiErr.RequestID, apiErr.RawBody)
+			}
+			if page == nil || len(page.Members) != 1 {
+				t.Errorf("partial result = %+v, want the page that did arrive", page)
+			}
+			if got := requests.Load(); got != 1 {
+				t.Errorf("%d requests, want 1: without pagination there is no next page to ask for", got)
+			}
+			if got := ExitCodeFor(err); got == 0 {
+				t.Error("exit code 0 for a failed sweep")
+			}
+		})
+	}
+}
+
+// A single page is not a sweep: with no pagination in the reply, list prints the
+// rows it got, and the meta the API sent, as it always did.
+func TestListMembersWithoutPaginationIsNotAnError(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[` + oneMemberJSON + `]}`))
+	})
+	page, err := c.ListMembers(context.Background(), "acme", ListMembersParams{})
+	if err != nil {
+		t.Fatalf("ListMembers: %v", err)
+	}
+	if len(page.Members) != 1 || len(page.Meta) != 0 {
+		t.Errorf("page = %+v", page)
 	}
 }
 

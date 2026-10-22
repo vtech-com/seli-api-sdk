@@ -747,6 +747,38 @@ func TestMembersListAll_PartialResultOnAFailureAfterPageOne(t *testing.T) {
 	}
 }
 
+// A reply with no meta.pagination cannot say where the last page is. Stopping
+// there would present one page as the whole list, so --all fails — with the page
+// that did arrive, in one document, under an error key.
+func TestMembersListAll_NoPaginationInTheReplyIsAnError(t *testing.T) {
+	t.Parallel()
+	api := newFakeAPI(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"only-page","userId":"u","level":"member","status":"active","createdAt":"t","displayName":null,"avatarUrl":null,"contactEmail":null,"contactPhone":null,"jobTitle":null,"department":null,"memberCode":null}]}`))
+	})
+
+	res := cliRun(t, "", okEnv(api), "members", "list", "--all", "--tenant", "acme")
+
+	if res.exit == 0 {
+		t.Fatalf("exit = 0: a sweep with no pagination in the reply claimed success\nstdout: %s", res.stdout)
+	}
+	doc := res.doc(t)
+	if msg, _ := obj(t, doc, "error")["message"].(string); !strings.Contains(msg, "pagination") {
+		t.Errorf("error.message = %q", msg)
+	}
+	if rows, _ := doc["data"].([]any); len(rows) != 1 {
+		t.Errorf("data = %v, want the one row that arrived", doc["data"])
+	}
+	if n := len(api.requests()); n != 1 {
+		t.Errorf("%d requests, want 1", n)
+	}
+
+	// Without --all the same reply is simply printed: there is no sweep to confuse.
+	api2 := newFakeAPI(t, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{"data":[]}`)) })
+	if res := cliRun(t, "", okEnv(api2), "members", "list", "--tenant", "acme"); res.exit != 0 {
+		t.Errorf("single page without pagination: exit = %d", res.exit)
+	}
+}
+
 func TestMembersListAll_FailureOnPageOneIsAPlainError(t *testing.T) {
 	t.Parallel()
 	api := pagedMembers(t, 4, 2, 1, http.StatusForbidden)

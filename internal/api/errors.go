@@ -7,9 +7,10 @@ import (
 	"net"
 )
 
-// CLI-defined error codes. All but two are diagnosed locally, before anything is
-// sent; ErrNetwork covers a transport failure after the request left, and
-// ErrUnexpectedRedirect a 3xx the server did send.
+// CLI-defined error codes. Most are diagnosed locally, before anything is sent;
+// ErrNetwork covers a transport failure after the request left,
+// ErrUnexpectedRedirect a 3xx the server did send, and ErrPageLimit a --all
+// sweep that ran into its own cap.
 const (
 	ErrTenantRequired    = "TENANT_REQUIRED"     // no tenant resolved for an endpoint that requires one
 	ErrInvalidMemberID   = "INVALID_MEMBER_ID"   // <id> positional arg is not a well-formed UUID
@@ -20,6 +21,7 @@ const (
 	ErrAPIURLMissing     = "API_URL_MISSING"     // no base URL from any layer, and none baked into the build; exit 5
 
 	ErrUnexpectedRedirect = "UNEXPECTED_REDIRECT" // the server answered 3xx, which the client never follows; exit 1
+	ErrPageLimit          = "PAGE_LIMIT_EXCEEDED" // a --all sweep hit the hard page cap with pages still to go; exit 1
 )
 
 // Per-endpoint tenant requirements, read from api/openapi.json's
