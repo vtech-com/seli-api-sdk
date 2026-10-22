@@ -33,7 +33,7 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 
 ### Prerequisites
 
-- Go 1.26.5+
+- Go 1.26.10+
 - `golangci-lint` (`brew install golangci-lint` / [install guide](https://golangci-lint.run/usage/install/))
 - `make`
 
