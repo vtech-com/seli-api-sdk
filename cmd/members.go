@@ -67,7 +67,8 @@ FLAGS
       could not tell where the last page is.
 
 OUTPUT
-  The members are at .data. meta names the tenant the call resolved to and
+  The members are at .data; each has the same shape as members get prints at
+  its .data (<member> below). meta names the tenant the call resolved to and
   where that came from (flag, env or config), followed by the API's own
   pagination object, exactly as the API sent it:
 
@@ -157,7 +158,28 @@ FLAGS
       members list. Exit 5 if none resolve.
 
 OUTPUT
-  { "data": <member>, "meta": { "tenant": "acme", "tenant_source": "flag" } }
+  The member is at .data, with every field the API sends. The seven fields
+  that can be null (displayName through memberCode) are always present: null
+  means never set, not omitted. level is owner or member; status is active or
+  inactive:
+
+      {
+        "data": {
+          "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          "userId": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+          "level": "member",
+          "status": "active",
+          "createdAt": "2026-07-24T09:30:00.000Z",
+          "displayName": "…",
+          "avatarUrl": null,
+          "contactEmail": "…",
+          "contactPhone": null,
+          "jobTitle": null,
+          "department": null,
+          "memberCode": "M-001"
+        },
+        "meta": { "tenant": "acme", "tenant_source": "flag" }
+      }
 
   Exit 4 if the id doesn't exist or isn't in the resolved tenant.`,
 	Args: cobra.ExactArgs(1),
