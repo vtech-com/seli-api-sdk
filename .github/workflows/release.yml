@@ -36,9 +36,6 @@ jobs:
       - name: Require the default API URL
         env:
           SELI_DEFAULT_API_URL: ${{ vars.SELI_DEFAULT_API_URL }}
-          # Optional; .goreleaser.yml falls back to the GitHub repo when unset.
-          SELI_HOMEPAGE: ${{ vars.SELI_HOMEPAGE }}
-          SELI_MAINTAINER: ${{ vars.SELI_MAINTAINER }}
         run: |
           if [ -z "$SELI_DEFAULT_API_URL" ]; then
             echo "::error::repository variable SELI_DEFAULT_API_URL is not set; set it (Settings > Secrets and variables > Actions > Variables) to the API base URL, https://<host> with no path, and re-run"
@@ -94,8 +91,21 @@ jobs:
           version: "~> v2.18"
           install-only: true
 
+      - name: Warn when the Homebrew tap token is missing
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$TAP_GITHUB_TOKEN" ]; then
+            echo "::warning::secret TAP_GITHUB_TOKEN is not set: this release publishes no Homebrew cask. Add a token with write access to vtech-com/homebrew-tap and re-release to publish one."
+          fi
+
       - name: Run GoReleaser
         run: goreleaser release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SELI_DEFAULT_API_URL: ${{ vars.SELI_DEFAULT_API_URL }}
+          # Optional; .goreleaser.yml falls back to the GitHub repo when unset.
+          SELI_HOMEPAGE: ${{ vars.SELI_HOMEPAGE }}
+          SELI_MAINTAINER: ${{ vars.SELI_MAINTAINER }}
+          # Optional; without it the cask is rendered but not pushed to the tap.
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}

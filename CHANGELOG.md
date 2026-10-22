@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Homebrew cask: `brew install --cask vtech-com/tap/seli` (macOS), published to
+  the same tap as capigo. A release without the `TAP_GITHUB_TOKEN` secret warns
+  and skips the cask instead of failing.
+
+### Fixed
+
+- `release.yml` passed `SELI_HOMEPAGE` / `SELI_MAINTAINER` to the wrong step, so
+  the package metadata always used the fallback. They now reach GoReleaser.
+- `CONTRIBUTING.md`: release PRs are merged with a merge commit, not squashed.
+
 ### Fixed
 
 - `SECURITY.md` sent vulnerability reports to an email on a domain that belongs to
