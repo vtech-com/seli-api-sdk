@@ -68,23 +68,19 @@ func Execute() {
 }
 
 func init() {
-	cobra.OnInitialize(initConfig)
-
 	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", "", "override the API base URL (host only, https)")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "trace the HTTP request and response on stderr (key redacted)")
 	rootCmd.PersistentFlags().StringVar(&tenant, "tenant", "", "tenant code to scope the request to")
 
+	// Exactly these three environment variables, by name. Do NOT add
+	// viper.AutomaticEnv() or an empty env prefix: that maps every key to its
+	// bare upper-case name (API_KEY, API_URL, TENANT), which other programs
+	// set for their own purposes, and which then win over the SELI_* ones —
+	// sending this CLI's key to whatever host a stranger's variable names.
 	_ = viper.BindEnv("api_key", "SELI_API_KEY")
 	_ = viper.BindEnv("tenant", "SELI_TENANT")
 	_ = viper.BindEnv("api_url", "SELI_API_URL")
 
 	_ = viper.BindPFlag("api_url", rootCmd.PersistentFlags().Lookup("api-url"))
 	_ = viper.BindPFlag("tenant", rootCmd.PersistentFlags().Lookup("tenant"))
-}
-
-// initConfig is the cobra.OnInitialize hook. It merges env-var overrides via
-// viper; internal/config handles the on-disk profile store separately.
-func initConfig() {
-	viper.SetEnvPrefix("")
-	viper.AutomaticEnv()
 }

@@ -325,6 +325,78 @@ func TestBaseURLPrecedence(t *testing.T) {
 	}
 }
 
+// The CLI reads SELI_API_KEY, SELI_API_URL and SELI_TENANT, and nothing more
+// generic. API_KEY, API_URL and TENANT are names half the programs on a machine
+// use for their own purposes; honouring them would send this CLI's key wherever
+// another program's variable points.
+func TestGenericEnvVarsAreIgnored(t *testing.T) {
+	t.Parallel()
+
+	t.Run("SELI_* wins, and the generic ones are never used", func(t *testing.T) {
+		t.Parallel()
+		seli := newFakeAPI(t, healthOK)
+		generic := newFakeAPI(t, healthOK)
+
+		res := cliRun(t, "", map[string]string{
+			"SELI_API_URL": seli.url(), "SELI_API_KEY": testAPIKey, "SELI_TENANT": "seli-tenant",
+			"API_URL": generic.url(), "API_KEY": "ssk_generic_key_value", "TENANT": "generic-tenant",
+		}, "health")
+
+		if res.exit != 0 {
+			t.Fatalf("exit = %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+		}
+		if n := len(generic.requests()); n != 0 {
+			t.Errorf("%d requests went to the host named by the generic API_URL", n)
+		}
+		reqs := seli.requests()
+		if len(reqs) != 1 {
+			t.Fatalf("%d requests reached the SELI_API_URL host, want 1", len(reqs))
+		}
+		if got := reqs[0].header.Get("Authorization"); got != "Bearer "+testAPIKey {
+			t.Errorf("Authorization = %q: the generic API_KEY was used", got)
+		}
+		if got := reqs[0].header.Get("X-Tenant-Code"); got != "seli-tenant" {
+			t.Errorf("X-Tenant-Code = %q: the generic TENANT was used", got)
+		}
+		meta := obj(t, res.doc(t), "meta")
+		if meta["tenant"] != "seli-tenant" || meta["tenant_source"] != "env" {
+			t.Errorf("meta = %v", meta)
+		}
+	})
+
+	t.Run("generic variables alone configure nothing", func(t *testing.T) {
+		t.Parallel()
+		generic := newFakeAPI(t, healthOK)
+
+		res := cliRun(t, "", map[string]string{
+			"API_URL": generic.url(), "API_KEY": "ssk_generic_key_value", "TENANT": "generic-tenant",
+		}, "health")
+
+		if res.exit != 2 {
+			t.Fatalf("exit = %d, want 2 (no key: API_KEY is not SELI_API_KEY)\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+		}
+		if n := len(generic.requests()); n != 0 {
+			t.Errorf("%d requests were sent on the strength of generic variables", n)
+		}
+	})
+
+	t.Run("generic API_URL cannot redirect a configured key", func(t *testing.T) {
+		t.Parallel()
+		generic := newFakeAPI(t, healthOK)
+
+		res := cliRun(t, "", map[string]string{
+			"SELI_API_KEY": testAPIKey, "SELI_TENANT": "acme", "API_URL": generic.url(),
+		}, "-v", "health")
+
+		if res.exit != 5 {
+			t.Fatalf("exit = %d, want 5 (API_URL_MISSING)\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+		}
+		if n := len(generic.requests()); n != 0 {
+			t.Errorf("%d requests went to the host named by the generic API_URL", n)
+		}
+	})
+}
+
 func TestVersionPrintsTheBakedInDefaultAPIURL(t *testing.T) {
 	t.Parallel()
 	res := cliRun(t, "", map[string]string{childDefaultEnv: "https://seli.example.test"}, "version")
