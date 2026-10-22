@@ -9,3 +9,4 @@ Status values: `not_started` → `in_progress` → `done` | `blocked`.
 | # | Plan | Status | Created |
 |---|------|--------|---------|
 | 001 | [Health & Member commands](001-health-members-commands.md) | done | 2026-07-31 |
+| 002 | [Hardening & first release](002-hardening-and-first-release.md) | not_started | 2026-10-22 |
