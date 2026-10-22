@@ -31,6 +31,28 @@ All notable changes to this project will be documented in this file.
   fetched. They are now printed, with an `error` key above them (see Added).
 - `seli config set` help pointed at `auth login` before it existed and showed a
   base URL with a stale path.
+- Generic `API_KEY`, `API_URL` and `TENANT` environment variables were honoured,
+  and won over the `SELI_*` ones, so a stranger's `API_URL` could receive the
+  API key. The CLI now reads only `SELI_API_KEY`, `SELI_API_URL` and
+  `SELI_TENANT`.
+- A redirect was followed, and Go forwards the `Authorization` header to the same
+  host whatever the scheme, so an https origin redirecting to http leaked the key
+  in clear text. Redirects are never followed: a 3xx is reported as
+  `UNEXPECTED_REDIRECT` (exit 1) naming where it pointed.
+- A base URL with a path, query, fragment or credentials produced garbage
+  request URLs (`https://h/x?y=1/api/health`). It must be host only, e.g.
+  `https://<host>`; anything else is refused locally with exit 5. Messages about
+  a bad base URL no longer repeat it, since it can carry a password.
+- `members list --page 0`, `--page-size 0` and negative values were silently
+  dropped, reading page 1 or the server's default. They now exit 5.
+- `members list --all` trusted the server's `totalPages` with no ceiling, and
+  read a reply with no `meta.pagination` as "that was the last page". It now
+  stops after 1000 pages with `PAGE_LIMIT_EXCEEDED`, and fails when pagination
+  is missing; both print the rows fetched so far under an `error` key.
+- Saving the config wrote to a fixed `config.json.tmp`, so a symlink planted at
+  that name received the config, API key included. It now writes through a
+  unique temp file created exclusively, and tightens an existing `~/.seli` to
+  mode 0700 on every save.
 
 ### Changed
 
