@@ -9,6 +9,9 @@ All notable changes to this project will be documented in this file.
 - Homebrew cask: `brew install --cask vtech-com/tap/seli` (macOS), published to
   the same tap as capigo. A release without the `TAP_GITHUB_TOKEN` secret warns
   and skips the cask instead of failing.
+- `release.yml` checks the tap token before anything is published: missing →
+  warning and no cask; set but expired, revoked, or not granted the tap → the
+  release stops before publishing.
 
 ### Fixed
 

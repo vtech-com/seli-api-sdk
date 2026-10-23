@@ -91,12 +91,27 @@ jobs:
           version: "~> v2.18"
           install-only: true
 
-      - name: Warn when the Homebrew tap token is missing
+      # Runs before anything is published. A token that is set but expired,
+      # revoked, or not granted the tap would otherwise fail only at the cask
+      # push, after the GitHub Release and its assets are already out.
+      # Write access cannot be proven without writing; this proves the token is
+      # live and can see the tap, which covers expiry, revocation, and a token
+      # scoped to the wrong repository.
+      - name: Check the Homebrew tap token
         env:
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
         run: |
           if [ -z "$TAP_GITHUB_TOKEN" ]; then
             echo "::warning::secret TAP_GITHUB_TOKEN is not set: this release publishes no Homebrew cask. Add a token with write access to vtech-com/homebrew-tap and re-release to publish one."
+            exit 0
+          fi
+          status=$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $TAP_GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/vtech-com/homebrew-tap)
+          if [ "$status" != "200" ]; then
+            echo "::error::TAP_GITHUB_TOKEN cannot read vtech-com/homebrew-tap (HTTP $status): it is expired, revoked, or not granted that repository. Fix the secret and re-run; nothing has been published."
+            exit 1
           fi
 
       - name: Run GoReleaser
