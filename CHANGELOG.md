@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-10-23
+
+### Changed
+
+- The `.deb` and Homebrew cask now name the Seli homepage instead of the
+  GitHub repository: the `SELI_HOMEPAGE` repository variable is set, and the
+  release reads it.
+- README reorganised to match the Capigo CLI SDK layout: per-channel install
+  sections (install script, `.deb`, Homebrew, Releases, source, `go install`),
+  a command overview, configuration precedence and headless-host guidance, a
+  JSON contract table, and AI-agent integration examples including the
+  bundled `seli-api` skill install.
+
 ## [0.1.1] — 2026-10-23
 
 ### Fixed
