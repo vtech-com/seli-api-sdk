@@ -11,7 +11,6 @@ All notable changes to this project will be documented in this file.
 - The `.deb` and Homebrew cask now name the Seli homepage instead of the
   GitHub repository: the `SELI_HOMEPAGE` repository variable is set, and the
   release reads it.
-
 - README reorganised to match the Capigo CLI SDK layout: per-channel install
   sections (install script, `.deb`, Homebrew, Releases, source, `go install`),
   a command overview, configuration precedence and headless-host guidance, a
