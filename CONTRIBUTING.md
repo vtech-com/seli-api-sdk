@@ -106,7 +106,10 @@ Merging a release branch into `main` is the release; nobody pushes a tag by hand
    merges into `main` without releasing anything, and nothing reports that it did not.
 2. On that branch, move the `[Unreleased]` entries to a new `## [X.Y.Z] — YYYY-MM-DD` section in
    `CHANGELOG.md`, commit, and open a PR into `main`.
-3. Review and merge the PR. `release-on-merge.yml` then checks that the branch name and the
+3. Review the PR and merge it with **Create a merge commit** — not squash. A squashed release
+   commit gives `main` a history `develop` does not share, and the automatic back-merge into
+   `develop` then conflicts. Every other PR is squash-merged.
+   After the merge, `release-on-merge.yml` checks that the branch name and the
    `CHANGELOG.md` section agree and that the version is newer than the latest tag, tags the merge
    commit, publishes through `release.yml`, and merges `main` back into `develop` through a sync PR.
 4. If the back-merge hits a conflict, the workflow run goes red and leaves the sync PR open: resolve

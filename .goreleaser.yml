@@ -59,6 +59,29 @@ nfpms:
     section: utils
     priority: optional
 
+# Published to the same tap as capigo: brew install --cask vtech-com/tap/seli.
+# Casks are macOS-only; Linux uses scripts/install.sh or the .deb above.
+homebrew_casks:
+  - name: seli
+    repository:
+      owner: vtech-com
+      name: homebrew-tap
+      token: '{{ envOrDefault "TAP_GITHUB_TOKEN" "" }}'
+    # Without a token the cask is still rendered into dist/ but not pushed, so a
+    # missing secret costs the Homebrew channel, not the whole release. capigo's
+    # config has no such guard: there, a missing token turns a release that has
+    # already published its GitHub assets red. release.yml warns when it is unset.
+    skip_upload: '{{ if eq (envOrDefault "TAP_GITHUB_TOKEN" "") "" }}true{{ else }}false{{ end }}'
+    homepage: '{{ envOrDefault "SELI_HOMEPAGE" "https://github.com/vtech-com/seli-api-sdk" }}'
+    description: "CLI tool and Go SDK for the Seli platform"
+    binaries: ["seli"]
+    # The binaries are not signed or notarized, so Gatekeeper would refuse to run
+    # one carrying the quarantine attribute. Same trade-off as capigo; signing and
+    # notarization would remove the need for it.
+    hooks:
+      post:
+        install: 'system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/seli"]'
+
 checksum:
   name_template: checksums.txt
   algorithm: sha256

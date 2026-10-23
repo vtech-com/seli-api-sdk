@@ -29,6 +29,14 @@ curl -fsSL https://raw.githubusercontent.com/vtech-com/seli-api-sdk/main/scripts
 Set `SELI_VERSION` (for example `v0.1.0`) to pin a version and `SELI_BIN_DIR` to install
 elsewhere. Re-run the script to upgrade.
 
+**Homebrew (macOS only).** The tap ships a **cask**, and casks are macOS-only — `brew install
+--cask` does not work on Linuxbrew. On Linux, use the install script or the `.deb` from the release.
+
+```bash
+brew install --cask vtech-com/tap/seli
+brew upgrade --cask seli    # later, to upgrade
+```
+
 **From source.** Needs Go (see `go.mod` for the version). The binary has to be told where the
 API lives, because a bare build has no default host — see [Configuration](#configuration):
 
