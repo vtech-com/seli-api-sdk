@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- v0.1.0 published its GitHub Release but no Homebrew cask: the tap token in
+  `.goreleaser.yml` used `envOrDefault`, and GoReleaser renders repository
+  tokens with an env-only template that accepts nothing but `{{ .Env.NAME }}`.
+  The token is now `{{ .Env.TAP_GITHUB_TOKEN }}`, and a test fails on any other
+  form — `goreleaser check` and a `--skip=publish` rehearsal both miss it.
+
 ## [0.1.0] — 2026-10-23
 
 ### Added
