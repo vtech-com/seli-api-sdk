@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-10-23
+
 ### Fixed
 
 - v0.1.0 published its GitHub Release but no Homebrew cask: the tap token in
