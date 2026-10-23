@@ -15,9 +15,6 @@ seli members list
 
 ## Installation
 
-> **Release status:** no version has been tagged yet, so the install script has nothing to
-> download until `v0.1.0` is published. Until then, build from source (below).
-
 **Install script (Linux and macOS).** It downloads the release archive for your platform,
 verifies it against the release's `checksums.txt`, and installs `seli` into `/usr/local/bin`
 (it uses `sudo` only if that directory is not writable):
