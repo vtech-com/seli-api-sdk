@@ -11,6 +11,9 @@ All notable changes to this project will be documented in this file.
   tokens with an env-only template that accepts nothing but `{{ .Env.NAME }}`.
   The token is now `{{ .Env.TAP_GITHUB_TOKEN }}`, and a test fails on any other
   form — `goreleaser check` and a `--skip=publish` rehearsal both miss it.
+- `release-on-merge.yml` skipped the main → develop back-merge whenever Publish
+  failed, leaving develop without the released CHANGELOG section. It now runs
+  as soon as the tag exists.
 
 ## [0.1.0] — 2026-10-23
 

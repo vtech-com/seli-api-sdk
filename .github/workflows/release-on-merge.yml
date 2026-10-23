@@ -92,6 +92,12 @@ jobs:
   sync-develop:
     name: Merge main back into develop
     needs: [tag, release]
+    # Runs once the tag exists, whether or not Publish succeeded. The release
+    # commit is on main either way; skipping the back-merge when Publish fails
+    # leaves develop without the CHANGELOG section, and the next release then
+    # ships those entries again. v0.1.0 hit exactly this (Publish failed at the
+    # Homebrew cask), and the sync had to be done by hand.
+    if: ${{ always() && needs.tag.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
