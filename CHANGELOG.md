@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-10-23
+
 ### Added
 
 - Homebrew cask: `brew install --cask vtech-com/tap/seli` (macOS), published to
