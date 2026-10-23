@@ -1,0 +1,134 @@
+name: Release on merge
+
+# Merging a `release/vX.Y.Z` PR into main is the release. This workflow tags the
+# merge commit, publishes through release.yml, and opens the main -> develop
+# sync PR. Nobody pushes a tag by hand on this path.
+#
+# The version comes from the branch name and must match a `## [X.Y.Z]` section
+# in CHANGELOG.md; release.yml checks the CHANGELOG half again at the tag.
+#
+# The API host is not part of this workflow: release.yml reads it from the repo
+# variable SELI_DEFAULT_API_URL and fails fast when it is unset.
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Tag the merge
+    # Same-repo branches only: a fork PR's token is read-only, and a release
+    # branch is something a maintainer cuts here, not something contributed.
+    if: >-
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'release/v') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+
+    steps:
+      - name: Checkout the merge commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+
+      - name: Resolve the version
+        id: version
+        env:
+          # Through env, not inline: a branch name is attacker-shaped input.
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          tag="${HEAD_REF#release/}"
+          if ! [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::branch '$HEAD_REF' does not name a version; expected release/vX.Y.Z"
+            exit 1
+          fi
+          if ! grep -qF "## [${tag#v}]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [${tag#v}]' section; the branch and the changelog disagree"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            echo "::error::tag $tag already exists"
+            exit 1
+          fi
+          latest=$(git tag --list 'v*' --sort=-v:refname | head -1)
+          if [ -n "$latest" ] && [ "$(printf '%s\n%s\n' "$latest" "$tag" | sort -V | tail -1)" != "$tag" ]; then
+            echo "::error::$tag is not newer than the latest tag $latest"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push the tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "refs/tags/$TAG"
+
+  release:
+    name: Publish
+    needs: tag
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
+    secrets: inherit
+
+  sync-develop:
+    name: Merge main back into develop
+    needs: [tag, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      # The back-merge is part of the release, not a follow-up someone has to
+      # remember: until it lands, develop still lists the released entries under
+      # [Unreleased] and the next release would ship them twice.
+      #
+      # It goes through a PR so the history reads like every other merge, and
+      # is merged straight away with GITHUB_TOKEN. A conflict leaves the PR open
+      # and turns this job red, rather than failing quietly.
+      #
+      # Needs "Allow GitHub Actions to create and approve pull requests" in the
+      # repo settings, and develop must not require status checks: ci.yml runs
+      # on a PR opened with GITHUB_TOKEN only after someone approves the run.
+      #
+      # REST rather than `gh pr create`: there is no checkout in this job, and
+      # gh's create path expects a local repository to resolve branches.
+      - name: Open and merge the sync PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.tag.outputs.tag }}
+        run: |
+          pr=$(gh api -X POST "repos/$GITHUB_REPOSITORY/pulls" \
+            -f base=develop -f head=main \
+            -f title="chore: sync main into develop after $TAG" \
+            -f body="Brings the $TAG release commit (CHANGELOG section) back into develop. Opened and merged by release-on-merge.yml." \
+            --jq .number)
+          echo "sync PR: #$pr"
+          # Mergeability is computed asynchronously right after the PR opens.
+          for attempt in 1 2 3 4 5; do
+            if gh api -X PUT "repos/$GITHUB_REPOSITORY/pulls/$pr/merge" -f merge_method=merge >/dev/null; then
+              echo "merged #$pr into develop"
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          echo "::error::could not merge sync PR #$pr into develop (conflict?). Resolve and merge it by hand."
+          exit 1

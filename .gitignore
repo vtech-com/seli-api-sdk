@@ -2,6 +2,7 @@ dist/
 *.local
 .DS_Store
 .seli/
+.env
 *.env
 coverage.out
 *.test

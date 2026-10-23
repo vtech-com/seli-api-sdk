@@ -2,7 +2,7 @@
 
 Read this for any member lookup, or when resolving an exact person's identity for some other
 write. `seli members list` and `seli members get <id>` are live commands backed by
-`GET /members` and `GET /members/{id}`.
+`GET /api/members` and `GET /api/members/{id}`.
 
 ## Read model
 
@@ -18,11 +18,9 @@ write. `seli members list` and `seli members get <id>` are live commands backed 
 
 ## Tenant scope
 
-`X-Tenant-Code` is a **required** header on both `members list` and `members get` — the CLI
-rejects the command locally (exit 5) if no tenant resolves. This is stricter than
-`docs/project-context.md §5.3`, which documents `GET /members` as tenant-optional; that table has
-drifted from `api/openapi.json` (see `docs/plans/001-health-members-commands.md §2.1`). Always
-resolve a tenant before a member lookup — do not expect a global, cross-tenant listing.
+`X-Tenant-Code` is a **required** header on both `members list` and `members get` in the Public
+API spec — the CLI rejects the command locally (exit 5, `TENANT_REQUIRED`) if no tenant resolves.
+Always resolve a tenant before a member lookup — do not expect a global, cross-tenant listing.
 
 ## Resolving an exact member
 
@@ -39,13 +37,14 @@ resolve a tenant before a member lookup — do not expect a global, cross-tenant
 ## Pagination
 
 `members list` returns `meta.pagination.{page, pageSize, total, totalPages}` — there is no
-`has_more` field (do not look for one, unlike some other list endpoints described elsewhere).
-Use `--all` to auto-paginate, or `--page-size 1` plus `meta.pagination.total` to answer a "how
-many members" question without fetching every row.
+`has_more` field and no `limit`; do not look for them. Use `--all` to auto-paginate (if it fails
+after the first page the rows fetched so far come back beside an `error` key — they are not the
+full set), or `--page-size 1` plus `meta.pagination.total` to answer a "how many members"
+question without fetching every row.
 
 ## Out of scope (API does not expose this yet)
 
-Member invite, role change, and remove are **not** in the Public API today
-(`docs/api-coverage-gaps.md`) — only `list` and `get` exist. Do not attempt to construct a write
-call for member management; tell the user this is currently read-only and point them to the web
-UI or the coverage-gaps note if they need it tracked.
+Member invite, role change, and remove are **not** in the Public API spec — the member
+operations it declares are reads (`list`, `get`, and a per-member permissions read the CLI does not
+wrap yet). Do not attempt to construct a write call for member management; tell the user this is
+currently read-only and point them to the web UI if they need it.

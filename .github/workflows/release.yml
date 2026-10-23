@@ -1,9 +1,24 @@
 name: Release
 
+# Two entry points. The usual one is release-on-merge.yml, which tags the merge
+# of a release/vX.Y.Z PR into main and then calls this workflow through
+# workflow_call, supplying inputs.tag: a tag pushed with GITHUB_TOKEN does not
+# fire `push` workflows, so that path cannot rely on the tag trigger below.
+# The tag trigger stays for a tag pushed by hand.
+#
+# release-on-merge.yml is not in this branch. It lands separately, on the branch
+# docs/agent-guides-release-flow, so until that merges nothing calls
+# workflow_call here and only the tag trigger is live.
 on:
   push:
     tags:
       - "v*"
+  workflow_call:
+    inputs:
+      tag:
+        description: Tag to release, e.g. v1.2.3
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -14,23 +29,98 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # The API host is configuration, never code: the binary's fallback host is
+      # injected at build time from this repository variable. A release without
+      # one would ship a binary that cannot reach anything until the user sets
+      # SELI_API_URL, so stop before building rather than after publishing.
+      - name: Require the default API URL
+        env:
+          SELI_DEFAULT_API_URL: ${{ vars.SELI_DEFAULT_API_URL }}
+        run: |
+          if [ -z "$SELI_DEFAULT_API_URL" ]; then
+            echo "::error::repository variable SELI_DEFAULT_API_URL is not set; set it (Settings > Secrets and variables > Actions > Variables) to the API base URL, https://<host> with no path, and re-run"
+            exit 1
+          fi
+          case "$SELI_DEFAULT_API_URL" in
+            https://*) ;;
+            *)
+              echo "::error::repository variable SELI_DEFAULT_API_URL must start with https://"
+              exit 1
+              ;;
+          esac
+
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
           fetch-depth: 0
+
+      # Whoever can push a tag can otherwise publish any commit. Only a commit
+      # already on main -- which a human approved into it -- may be released,
+      # and its CHANGELOG must carry the section the tag names.
+      - name: Check the tag is releasable
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if ! [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::'$TAG' is not a vX.Y.Z tag"
+            exit 1
+          fi
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::$TAG points at $(git rev-parse --short HEAD), which is not on main"
+            exit 1
+          fi
+          if ! grep -qF "## [${TAG#v}]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md at $TAG has no '## [${TAG#v}]' section"
+            exit 1
+          fi
 
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.26.5"
+          go-version: "1.26.10"
           cache: true
 
       - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
+          # Pinned to a minor line: patch releases are picked up automatically,
+          # a minor bump is not, so an unreviewed minor bump cannot silently
+          # change what the release publishes.
+          version: "~> v2.18"
           install-only: true
+
+      # Runs before anything is published. A token that is set but expired,
+      # revoked, or not granted the tap would otherwise fail only at the cask
+      # push, after the GitHub Release and its assets are already out.
+      # Write access cannot be proven without writing; this proves the token is
+      # live and can see the tap, which covers expiry, revocation, and a token
+      # scoped to the wrong repository.
+      - name: Check the Homebrew tap token
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$TAP_GITHUB_TOKEN" ]; then
+            echo "::warning::secret TAP_GITHUB_TOKEN is not set: this release publishes no Homebrew cask. Add a token with write access to vtech-com/homebrew-tap and re-release to publish one."
+            exit 0
+          fi
+          status=$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $TAP_GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/vtech-com/homebrew-tap)
+          if [ "$status" != "200" ]; then
+            echo "::error::TAP_GITHUB_TOKEN cannot read vtech-com/homebrew-tap (HTTP $status): it is expired, revoked, or not granted that repository. Fix the secret and re-run; nothing has been published."
+            exit 1
+          fi
 
       - name: Run GoReleaser
         run: goreleaser release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SELI_DEFAULT_API_URL: ${{ vars.SELI_DEFAULT_API_URL }}
+          # Optional; .goreleaser.yml falls back to the GitHub repo when unset.
+          SELI_HOMEPAGE: ${{ vars.SELI_HOMEPAGE }}
+          SELI_MAINTAINER: ${{ vars.SELI_MAINTAINER }}
+          # Optional; without it the cask is rendered but not pushed to the tap.
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}

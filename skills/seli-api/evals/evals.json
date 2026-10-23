@@ -16,13 +16,14 @@
     {
       "id": 2,
       "prompt": "The installed `seli` binary's root help does not show a WMS group, but the user asks whether the Seli Public API supports listing inbound receipts and what they should do next. Investigate read-only. Do not call a tenant endpoint and do not use raw authenticated HTTP.",
-      "expected_output": "The agent checks the installed binary/version and live help, confirms the CLI gap, consults the public or repository OpenAPI only because the gap is confirmed, distinguishes API capability from CLI exposure, and recommends an upgrade or CLI feature rather than bypassing the CLI for the user's tenant operation.",
+      "expected_output": "The agent checks the installed binary/version and live help, confirms the CLI has no such command, consults the public or repository OpenAPI only because the gap is confirmed, reports what the spec actually declares (no inbound-receipt operation) rather than assuming one, and recommends reporting the gap instead of bypassing the CLI or guessing an endpoint.",
       "files": [],
       "assertions": [
         "Uses `seli version` and root or group help as the first source for the installed CLI surface.",
-        "Consults the OpenAPI specification only after confirming the CLI gap.",
-        "Correctly reports that the Public API includes a read operation for inbound receipts while the installed CLI does not expose a WMS group.",
-        "Does not make an authenticated raw API call or claim that a missing CLI command means the platform lacks the capability."
+        "Consults the OpenAPI specification only after confirming the CLI gap, and reads it from the repository or from `<host>/api/openapi` rather than guessing paths.",
+        "Reports accurately from the spec whether an inbound-receipt operation is declared; does not claim the Public API supports it unless a path in the spec does.",
+        "Distinguishes 'not exposed by this CLI' from 'not present in the Public API' and recommends reporting the gap or upgrading the CLI.",
+        "Does not make an authenticated raw API call or invent an endpoint path."
       ]
     },
     {
@@ -39,14 +40,76 @@
     },
     {
       "id": 4,
-      "prompt": "Running `seli health --tenant acme` returns exit code 5 with an error about no tenant resolved, even though --tenant acme was passed. Diagnose what's actually wrong without assuming it's an authentication problem.",
-      "expected_output": "The agent reads the `error.message` and distinguishes this from an auth failure (exit 2) or a network failure (exit 6): exit 5 here means the CLI's local tenant-required validation failed before any request was sent, so it checks whether --tenant was actually passed to the right command/build, or whether SELI_TENANT/config default_tenant conflicts, rather than telling the user to re-authenticate or check connectivity.",
+      "prompt": "Running `seli health` exits 5, and the stdout error object has code TENANT_REQUIRED, even though the user insists they set a tenant earlier (they exported SELI_TENANT in a different terminal tab). Diagnose what's actually wrong without assuming it's an authentication problem.",
+      "expected_output": "The agent reads error.code and error.message, recognises exit 5 here as the CLI's local tenant-required check failing before any request was sent (not exit 2 auth or exit 6 network), and walks the tenant resolution order (--tenant, SELI_TENANT, default_tenant) instead of telling the user to re-authenticate or check connectivity.",
       "files": [],
       "assertions": [
-        "Correctly maps exit code 5 to a local validation failure, not exit 2 (auth) or exit 6 (network).",
+        "Correctly maps exit code 5 with TENANT_REQUIRED to a local validation failure, not exit 2 (auth) or exit 6 (network).",
         "Does not tell the user to re-run auth login or check their API key based on this exit code alone.",
-        "Reads the error object's message before proposing a fix.",
-        "Investigates the actual --tenant flag/env/config resolution rather than guessing the cause."
+        "Reads error.code and error.message before proposing a fix.",
+        "Explains the resolution order --tenant, then SELI_TENANT, then the stored default_tenant, and offers `--tenant <code>` or `seli config set-default-tenant <code>` as the fix.",
+        "Does not guess the tenant code; asks the user for it."
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "`seli health --tenant acme` exits 2 and the stdout error object has code AUTH_MISSING_HEADER; the message says no API key is configured. The user has the key in a password manager. Explain what to do. Do not ask them to paste the key into chat and do not look for the key in their files or environment.",
+      "expected_output": "The agent recognises exit 2 with AUTH_MISSING_HEADER as a locally-detected missing key (nothing was sent to the server), tells the user to store the key themselves with `seli auth login --key <key>` in their own terminal or to export SELI_API_KEY, and then re-runs `seli health`.",
+      "files": [],
+      "assertions": [
+        "Identifies that no key is configured and that the CLI did not contact the server.",
+        "Tells the user to run `seli auth login --key ...` themselves or to set SELI_API_KEY, and mentions SELI_API_KEY as the better option on shared machines or CI.",
+        "Does not ask for the key in chat, read ~/.seli/config.json or environment variables to find it, or run `seli auth login` with a key it was not given.",
+        "Does not diagnose this as a network problem, a tenant problem, or a rejected key.",
+        "Plans to verify with `seli health` after the key is stored."
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "On a binary the user built themselves, `seli health --tenant acme` exits 5 and the stdout error object has code API_URL_MISSING. `seli version` shows an empty default_api_url. The user does not remember the API host. Explain how to proceed. Do not guess a hostname.",
+      "expected_output": "The agent explains that this build bakes in no default host, that the host is configuration the user must supply (--api-url, SELI_API_URL, or `seli config set api_url https://<host>` once a profile exists), and asks the user for it instead of inventing one.",
+      "files": [],
+      "assertions": [
+        "Identifies API_URL_MISSING as a local configuration error, not an authentication or network failure.",
+        "Uses the empty default_api_url from `seli version` as the explanation.",
+        "Asks the user for the API host and offers --api-url, SELI_API_URL, or `seli config set api_url` as ways to set it.",
+        "Does not invent or guess a hostname, and does not take the host from the spec's servers entry.",
+        "Requires an https URL (plain http is refused except for localhost)."
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "In tenant `acme`, run `seli members list --all` to count the active members. The command exits 6 after printing a JSON document that contains both a `data` array of 300 members and an `error` key. Report the result to the user.",
+      "expected_output": "The agent notices the error key, treats the 300 rows as an incomplete prefix, reports the failure (network error) and the partial count honestly, and retries or asks before presenting any total as final.",
+      "files": [],
+      "assertions": [
+        "Checks for the error key before trusting data.",
+        "States that the 300 rows are partial and does not present 300 as the member count.",
+        "Reports the error code or the network failure to the user.",
+        "May retry because exit 6 is a network error, or reads meta.pagination.total from a successful call to answer the count, but does not claim completeness without a successful run."
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "The user says 'list the members' without naming a tenant. A default tenant is stored in the CLI config. You run `seli members list` and the output has meta.tenant set to `globex` and meta.tenant_source set to `config`. Report the result.",
+      "expected_output": "The agent states that the rows come from tenant globex, chosen from the stored default rather than from the user's request, so a wrong default is visible.",
+      "files": [],
+      "assertions": [
+        "Names the tenant (globex) the data came from.",
+        "Notes that the tenant came from the stored default (meta.tenant_source is config), not from the user's words.",
+        "Does not present the rows as tenant-agnostic or as belonging to a different tenant."
+      ]
+    },
+    {
+      "id": 9,
+      "prompt": "`seli members list --tenant acme` exits 1 and the stdout error object has http_status 500, a server error code, a request_id, and a raw body. Decide what to tell the user and whether to retry.",
+      "expected_output": "The agent reads the error object, reports the server's code, message and request_id to the user as a server-side failure, does not call it an auth, tenant or network problem, and does not retry in a loop.",
+      "files": [],
+      "assertions": [
+        "Reads error.code, error.message, error.http_status and error.raw rather than guessing.",
+        "Reports error.request_id so the failure can be traced.",
+        "Does not blame the key, the tenant, or the user's network.",
+        "Does not retry blindly or invent a recovery step."
       ]
     }
   ]

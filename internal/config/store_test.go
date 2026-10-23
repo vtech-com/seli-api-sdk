@@ -45,7 +45,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		Profiles: map[string]Profile{
 			"default": {
 				APIKey:        "sk_test123",
-				APIURL:        "https://api.seli.app",
+				APIURL:        "https://api.example.test",
 				DefaultTenant: "acme",
 				KnownTenants:  []string{"acme", "globex"},
 			},
@@ -120,6 +120,137 @@ func TestAtomicWriteTmpAbsent(t *testing.T) {
 	tmpPath := path + ".tmp"
 	if _, err := os.Stat(tmpPath); !os.IsNotExist(err) {
 		t.Errorf("temp file %s should not exist after successful Save", tmpPath)
+	}
+}
+
+func dirEntries(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
+}
+
+// The temp file used to have a fixed name next to the config. Anyone able to
+// plant a symlink there made Save write the config — API key included — through
+// it, to a file of their choosing.
+func TestSaveNeverWritesThroughAPlantedTempSymlink(t *testing.T) {
+	path := withTempConfig(t)
+	dir := filepath.Dir(path)
+
+	victim := filepath.Join(t.TempDir(), "victim.txt")
+	if err := os.WriteFile(victim, []byte("untouched"), 0o600); err != nil {
+		t.Fatalf("write victim: %v", err)
+	}
+	for _, name := range []string{path + ".tmp", filepath.Join(dir, ".config.json.tmp"), filepath.Join(dir, "config.tmp")} {
+		if err := os.Symlink(victim, name); err != nil {
+			t.Skipf("cannot create symlinks here: %v", err)
+		}
+	}
+
+	cfg := &Config{Version: schemaVersion, Profiles: map[string]Profile{"default": {APIKey: "ssk_secret_value"}}, ActiveProfile: "default"}
+	if err := Save(cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := os.ReadFile(victim)
+	if err != nil {
+		t.Fatalf("read victim: %v", err)
+	}
+	if string(got) != "untouched" {
+		t.Errorf("Save wrote through a symlink at a predictable temp name: victim now holds %q", got)
+	}
+	loaded, err := Load()
+	if err != nil || loaded.Profiles["default"].APIKey != "ssk_secret_value" {
+		t.Errorf("the config was not saved: %v / %+v", err, loaded)
+	}
+}
+
+// A stale file at the old fixed temp name is none of Save's business.
+func TestSaveLeavesAStaleLegacyTempFileAlone(t *testing.T) {
+	path := withTempConfig(t)
+	if err := os.WriteFile(path+".tmp", []byte("stale"), 0o644); err != nil {
+		t.Fatalf("write stale file: %v", err)
+	}
+
+	cfg := &Config{Version: schemaVersion, Profiles: map[string]Profile{"default": {APIKey: "ssk_x"}}, ActiveProfile: "default"}
+	if err := Save(cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if b, err := os.ReadFile(path + ".tmp"); err != nil || string(b) != "stale" {
+		t.Errorf("the stale file was disturbed: %q / %v", b, err)
+	}
+}
+
+// Whether Save succeeds or fails, it leaves nothing but the config behind.
+func TestSaveLeavesNoTempFileBehind(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		path := withTempConfig(t)
+		cfg := &Config{Version: schemaVersion, Profiles: map[string]Profile{"default": {APIKey: "ssk_x"}}, ActiveProfile: "default"}
+		for i := 0; i < 3; i++ {
+			if err := Save(cfg); err != nil {
+				t.Fatalf("Save: %v", err)
+			}
+		}
+		if got := dirEntries(t, filepath.Dir(path)); len(got) != 1 || got[0] != "config.json" {
+			t.Errorf("directory holds %v, want only config.json", got)
+		}
+	})
+
+	t.Run("failure", func(t *testing.T) {
+		path := withTempConfig(t)
+		// A non-empty directory where the file belongs makes the rename fail.
+		if err := os.MkdirAll(filepath.Join(path, "occupied"), 0o700); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		cfg := &Config{Version: schemaVersion, Profiles: map[string]Profile{"default": {APIKey: "ssk_x"}}, ActiveProfile: "default"}
+
+		if err := Save(cfg); err == nil {
+			t.Fatal("Save succeeded over a directory")
+		}
+		if got := dirEntries(t, filepath.Dir(path)); len(got) != 1 || got[0] != "config.json" {
+			t.Errorf("directory holds %v after a failed Save, want only the planted directory", got)
+		}
+	})
+}
+
+// MkdirAll leaves an existing directory as it found it, so a ~/.seli created
+// earlier with 0755 stayed listable and, if group-writable, replaceable.
+func TestSaveTightensAnExistingConfigDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits")
+	}
+	dir := filepath.Join(t.TempDir(), ".seli")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil { // beat the umask
+		t.Fatalf("chmod: %v", err)
+	}
+	path := filepath.Join(dir, "config.json")
+	orig := ConfigPath
+	ConfigPath = func() (string, error) { return path, nil }
+	t.Cleanup(func() { ConfigPath = orig })
+
+	cfg := &Config{Version: schemaVersion, Profiles: map[string]Profile{"default": {APIKey: "ssk_x"}}, ActiveProfile: "default"}
+	if err := Save(cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat dir: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Errorf("config dir mode = %04o, want 0700", got)
+	}
+	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
+		t.Errorf("config file mode = %04o, want 0600", info.Mode().Perm())
 	}
 }
 
@@ -263,5 +394,88 @@ func TestSaveCreatesDirIfMissing(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Errorf("config file not created: %v", err)
+	}
+}
+
+func TestActiveProfileName(t *testing.T) {
+	if got := ActiveProfileName(&Config{}); got != "default" {
+		t.Errorf("unset active_profile: got %q, want default", got)
+	}
+	if got := ActiveProfileName(&Config{ActiveProfile: "staging"}); got != "staging" {
+		t.Errorf("got %q, want staging", got)
+	}
+}
+
+// The first login on a fresh machine has no config at all: it must create the
+// profile, make it active, and stamp the schema version.
+func TestSetAPIKeyCreatesTheProfile(t *testing.T) {
+	cfg := &Config{}
+
+	name := SetAPIKey(cfg, "ssk_abc")
+
+	if name != "default" || cfg.ActiveProfile != "default" {
+		t.Errorf("name = %q, active = %q, want default", name, cfg.ActiveProfile)
+	}
+	if cfg.Version != schemaVersion {
+		t.Errorf("Version = %d, want %d", cfg.Version, schemaVersion)
+	}
+	if got := cfg.Profiles["default"].APIKey; got != "ssk_abc" {
+		t.Errorf("APIKey = %q", got)
+	}
+}
+
+// Logging in again, or into an existing profile, replaces only the key.
+func TestSetAPIKeyKeepsTheRestOfTheProfile(t *testing.T) {
+	cfg := &Config{
+		Version:       schemaVersion,
+		ActiveProfile: "staging",
+		Profiles: map[string]Profile{
+			"staging": {APIKey: "ssk_old", APIURL: "https://staging.example.test", DefaultTenant: "acme", KnownTenants: []string{"acme"}},
+			"default": {APIKey: "ssk_other"},
+		},
+	}
+
+	name := SetAPIKey(cfg, "ssk_new")
+
+	if name != "staging" {
+		t.Errorf("name = %q, want staging", name)
+	}
+	p := cfg.Profiles["staging"]
+	if p.APIKey != "ssk_new" || p.APIURL != "https://staging.example.test" || p.DefaultTenant != "acme" || len(p.KnownTenants) != 1 {
+		t.Errorf("profile = %+v: only the key should have changed", p)
+	}
+	if cfg.Profiles["default"].APIKey != "ssk_other" {
+		t.Error("another profile's key was touched")
+	}
+}
+
+func TestClearAPIKey(t *testing.T) {
+	cfg := &Config{
+		ActiveProfile: "default",
+		Profiles:      map[string]Profile{"default": {APIKey: "ssk_abc", DefaultTenant: "acme"}},
+	}
+
+	name, had := ClearAPIKey(cfg)
+	if name != "default" || !had {
+		t.Fatalf("ClearAPIKey = (%q, %v), want (default, true)", name, had)
+	}
+	if p := cfg.Profiles["default"]; p.APIKey != "" || p.DefaultTenant != "acme" {
+		t.Errorf("profile = %+v: only the key should have been cleared", p)
+	}
+
+	// Logging out twice is harmless.
+	if _, had := ClearAPIKey(cfg); had {
+		t.Error("second ClearAPIKey reports a key to remove")
+	}
+}
+
+func TestClearAPIKeyWithNoProfile(t *testing.T) {
+	cfg := &Config{}
+	name, had := ClearAPIKey(cfg)
+	if name != "default" || had {
+		t.Errorf("ClearAPIKey = (%q, %v), want (default, false)", name, had)
+	}
+	if cfg.Profiles != nil {
+		t.Error("ClearAPIKey must not create a profile")
 	}
 }

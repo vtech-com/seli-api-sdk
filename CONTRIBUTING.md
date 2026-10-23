@@ -33,7 +33,7 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 
 ### Prerequisites
 
-- Go 1.26.5+
+- Go 1.26.10+
 - `golangci-lint` (`brew install golangci-lint` / [install guide](https://golangci-lint.run/usage/install/))
 - `make`
 
@@ -54,6 +54,7 @@ make test            # Run unit tests
 make lint            # Run golangci-lint
 make fmt             # Format code (gofmt)
 make check           # lint + test (run before pushing)
+make update-spec     # Refresh api/openapi.json from $SELI_SPEC_URL (or $SELI_DEFAULT_API_URL/api/openapi)
 make clean           # Remove build artifacts
 ```
 
@@ -76,7 +77,7 @@ add them as the Seli API surface is built out.
 
 ## Making Changes
 
-1. Fork and branch from `main`
+1. Fork and branch from `develop` (`feat/`, `fix/`, `docs/`, `chore/`), and open the PR into `develop`. `main` only receives `release/vX.Y.Z` PRs — see [Release Process](#release-process)
 2. Keep PRs focused — one concern per PR
 3. Add or update tests for any behavior change
 4. Run `make check` before opening the PR
@@ -97,5 +98,27 @@ New commands and internal packages should ship with unit tests.
 
 ## Release Process
 
-Tags matching `v*` trigger the release workflow, which runs `goreleaser` to
-build and publish binaries for Linux, macOS, and Windows (amd64/arm64).
+Releases are managed by maintainers via [GoReleaser](https://goreleaser.com/) and GitHub Actions.
+Merging a release branch into `main` is the release; nobody pushes a tag by hand.
+
+1. Cut `release/vX.Y.Z` from `develop`. The branch name is the version, and the leading `v` is
+   required. A PR from any other branch — `develop` itself, `release/0.1.0`, `chore/cut-v0.1.0` —
+   merges into `main` without releasing anything, and nothing reports that it did not.
+2. On that branch, move the `[Unreleased]` entries to a new `## [X.Y.Z] — YYYY-MM-DD` section in
+   `CHANGELOG.md`, commit, and open a PR into `main`.
+3. Review the PR and merge it with **Create a merge commit** — not squash. A squashed release
+   commit gives `main` a history `develop` does not share, and the automatic back-merge into
+   `develop` then conflicts. Every other PR is squash-merged.
+   After the merge, `release-on-merge.yml` checks that the branch name and the
+   `CHANGELOG.md` section agree and that the version is newer than the latest tag, tags the merge
+   commit, publishes through `release.yml`, and merges `main` back into `develop` through a sync PR.
+4. If the back-merge hits a conflict, the workflow run goes red and leaves the sync PR open: resolve
+   and merge it by hand.
+
+`release.yml` also runs on a hand-pushed `v*` tag as a fallback, but it refuses any tag that does
+not point at a commit on `main` or whose `CHANGELOG.md` lacks the matching section.
+
+The API host the released binary defaults to is not in the repository: `release.yml` reads it from
+the `SELI_DEFAULT_API_URL` repository variable, and a release fails if the variable is unset.
+
+If you notice the project is missing a tag or a release is broken, open an issue rather than trying to trigger releases yourself.

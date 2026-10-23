@@ -4,6 +4,8 @@
 > **Owner:** Luu Trong
 > **Last updated:** 2026-05-23
 > **Target audience:** Seli dev team & open source contributors
+>
+> **Reading note:** this is a design document, not a contract. §3.4 (tenant resolution) and §5.1–§5.6 (base URL, tenants, endpoints, pagination) were corrected to match the CLI as built; other sections — notably the UX examples in §4 and the command tree in the appendix — still show the original design (`tasks`, `boards`, `--no-tenant`, `--output`, table output) and are not implemented. Where this document and the CLI disagree, `seli --help` and `api/openapi.json` win.
 
 ---
 
@@ -11,7 +13,7 @@
 
 ### 1.1 Background
 
-Seli exposes a stable Public API at `/api/v1/*` with API key authentication (keys start with `sk_`). Today, any third-party that wants to integrate with Seli must:
+Seli exposes a stable Public API at `/api/*` with API key authentication (keys start with `ssk_`). Today, any third-party that wants to integrate with Seli must:
 
 - Read the OpenAPI spec and understand it manually
 - Implement their own HTTP client
@@ -36,7 +38,7 @@ Build an **open source CLI SDK** modeled after `gcloud` (Google Cloud) or `strip
 - Does not replace the Web UI (Web UI remains the primary interface for human users)
 - Does not expose internal APIs (`/api/internal/*`, `/api/mcp/*`)
 - Does not build IDE plugins or GUI apps
-- Does not support OAuth flows in the CLI (only accepts `sk_` keys created on the web)
+- Does not support OAuth flows in the CLI (only accepts `ssk_` keys created on the web)
 
 ---
 
@@ -94,16 +96,16 @@ Not using:
 │                                                     │
 │  ┌──────────┐  ┌──────────┐  ┌──────────────────┐   │
 │  │   auth   │  │  config  │  │  command modules │   │
-│  │ (sk_ +  │  │ (active  │  │  tasks / members │   │
+│  │ (ssk_ + │  │ (active  │  │  tasks / members │   │
 │  │  profile)│  │  tenant) │  │  boards / wms... │   │
 │  └──────────┘  └──────────┘  └──────────────────┘   │
 │                      │                              │
 │           ~/.seli/config.json                     │
 └────────────────┬────────────────────────────────────┘
-                 │ HTTPS + Bearer sk_ + X-Tenant-Code
+                 │ HTTPS + Bearer ssk_ + X-Tenant-Code
                  ▼
 ┌─────────────────────────────────────────────────────┐
-│         Seli Public API  /api/v1/*                │
+│         Seli Public API  /api/*                   │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -115,7 +117,7 @@ seli-api-sdk/                          # Standalone repo on GitHub
 ├── README.md
 ├── CONTRIBUTING.md
 ├── CODE_OF_CONDUCT.md               # Contributor Covenant 2.1
-├── SECURITY.md                      # security@seli.app
+├── SECURITY.md                      # private reporting via GitHub Security Advisories
 ├── CHANGELOG.md                     # Keep a Changelog format
 ├── go.mod
 ├── go.sum
@@ -178,8 +180,8 @@ seli-api-sdk/                          # Standalone repo on GitHub
   "version": 1,
   "profiles": {
     "default": {
-      "api_key": "sk_abc123...",
-      "api_url": "https://platform.seli.app",
+      "api_key": "ssk_...",
+      "api_url": "https://<host>",
       "default_tenant": "acme",
       "known_tenants": ["acme", "globex", "initech"]
     }
@@ -193,7 +195,7 @@ Additional profiles can be added (e.g. for different API keys or environments) b
 **Notes on tenant fields:**
 
 - `default_tenant` is **optional**. If set, it's used when no `--tenant` flag is passed. It is a **soft default**, not a hard lock — every command can override it per call.
-- `known_tenants` is a local cache populated from `GET /api/v1/tenants` (refreshed on `seli tenants list` or on auth). Used for shell completion and validation. Not authoritative.
+- `known_tenants` is a local cache populated from a tenants endpoint (none in the current spec) (refreshed on `seli tenants list` or on auth). Used for shell completion and validation. Not authoritative.
 - A user typically belongs to multiple tenants and may switch between them often (e.g. a product manager working across several tenants in one session), so the CLI must not bind to a single "active tenant".
 
 **File permissions:** Must `chmod 600` on create/update (contains secrets).
@@ -211,20 +213,19 @@ CLI flag (--api-key, --tenant, --no-tenant)
 AI agents can inject credentials via env vars instead of writing a file:
 
 ```bash
-SELI_API_KEY=sk_... SELI_TENANT=acme seli tasks list
+SELI_API_KEY=ssk_... SELI_TENANT=acme seli tasks list
 ```
 
-**Tenant resolution rule (specific):**
+**Tenant resolution rule (as implemented):**
 
 ```
---tenant <code>       → use that tenant
-  else --no-tenant    → force global mode (no X-Tenant-Code)
-    else $SELI_TENANT  → use that tenant
-      else config.default_tenant  → use that tenant
-        else                       → global mode (no X-Tenant-Code)
+--tenant <code>                → use that tenant      (meta.tenant_source = "flag")
+  else $SELI_TENANT            → use that tenant      (meta.tenant_source = "env")
+    else config.default_tenant → use that tenant      (meta.tenant_source = "config")
+      else                     → exit 5, TENANT_REQUIRED; nothing is sent
 ```
 
-**Default behavior when nothing is configured: global mode** (no tenant header sent). The API returns data across all accessible tenants. This is intentional — it lets new users see something useful immediately without configuration.
+There is no global mode and no `--no-tenant` flag: every operation in the current spec declares `X-Tenant-Code` as a required header (§5.3), so a command that resolves no tenant fails locally rather than sending a request the server cannot place. If a future endpoint is genuinely tenant-optional, the CLI will send the header only when a tenant resolves.
 
 ---
 
@@ -276,7 +277,7 @@ seli products list --tenant <code>           # Tenant required for /pcms/*
 brew install --cask vtech-com/tap/seli
 
 # 2. Login (paste key created from Seli web)
-seli auth login --key sk_abc123...
+seli auth login --key ssk_...
 # → Saved to ~/.seli/config.json (chmod 600)
 
 # 3. Verify
@@ -376,18 +377,28 @@ All errors include `code` (machine-readable) and `request_id` (for debugging wit
 ### 5.1 Base URL
 
 ```
-Production:  https://platform.seli.app/api/v1
-Local dev:   http://localhost:3999/api/v1
+Base URL:    https://<host>            (host only — no path)
+Endpoints:   <base URL>/api/health, <base URL>/api/members, …   (the spec's own paths, verbatim)
+Local dev:   http://localhost:3999     (plain http is accepted for localhost / 127.0.0.1 only)
 ```
 
-The CLI uses `https://platform.seli.app/api/v1` by default. Override with `--api-url` or `SELI_API_URL` env var for staging/local development.
+The API host is **configuration, never code**: no source file, test or doc names a real hostname, because the domain will change. The CLI resolves the base URL from, first match wins:
+
+1. `--api-url`
+2. `SELI_API_URL`
+3. the active profile's `api_url` (`seli config set api_url https://<host>`)
+4. a default baked in at build time from `SELI_DEFAULT_API_URL` (`-ldflags -X`, set by the Makefile and `.goreleaser.yml`; release builds take it from the repository variable of the same name). `seli version` prints it as `default_api_url`.
+
+If every layer is empty (a bare `go build` / `go install`), the CLI fails locally with exit 5 and `API_URL_MISSING`. A non-HTTPS base URL is refused (exit 5, `INSECURE_BASE_URL`) unless the host is `localhost` or `127.0.0.1`. The spec's `servers[0].url` is never used as a default.
+
+The API's path prefix is `/api` — **not** `/api/v1`; `/api/v1/*` answers 404. The prefix lives in code next to each path, so a change of domain never touches it.
 
 ### 5.2 Authentication
 
 ```http
-GET /api/v1/mission/tasks HTTP/1.1
-Host: platform.seli.app
-Authorization: Bearer sk_abc123...
+GET /api/health HTTP/1.1
+Host: <host>
+Authorization: Bearer ssk_...
 X-Tenant-Code: acme
 User-Agent: seli-api-sdk/1.0.0 (darwin; arm64)
 ```
@@ -402,67 +413,64 @@ API keys are issued by Seli through the Seli platform UI. The CLI never creates 
 
 ### 5.3 Tenant handling per endpoint
 
-The Public API supports both global and scoped operations. Each endpoint declares its own tenant requirement — the SDK must encode this per command. **The table below covers the current initial scope; new endpoints follow the same pattern (consult `api/openapi.json` for the authoritative requirement).**
+Each endpoint declares its own tenant requirement in `api/openapi.json` — the SDK encodes it per command. In the current spec (`info.version` 2026-10-21) **every operation requires the `X-Tenant-Code` header** (`components.parameters.XTenantCode`, `required: true`); none takes a tenant in the body. The CLI wraps three of the ten operations today:
 
-| Endpoint | Tenant location | Required? | Notes |
+| Endpoint | Tenant location | Required? | CLI |
 |---|---|---|---|
-| `GET /members` | `X-Tenant-Code` header | Optional | Omit → members from all accessible tenants |
-| `GET /mission/boards` | `X-Tenant-Code` header | Optional | Omit → boards from all accessible tenants |
-| `GET /mission/boards/{id}` | `X-Tenant-Code` header | Optional | |
-| `GET /mission/tasks` | `X-Tenant-Code` header | Optional | Omit → tasks from all accessible tenants |
-| `GET /mission/tasks/{id}` | `X-Tenant-Code` header | Optional | |
-| `POST /mission/tasks` | **`tenant_code` body field** | **Required** | Header is ignored; body field is mandatory |
-| `GET /pcms/products` | `X-Tenant-Code` header | **Required** | Returns 400 if omitted |
-| `GET /tenants` | n/a | n/a | Always scoped to the authenticated user |
+| `GET /api/health` | `X-Tenant-Code` header | **Required** | `seli health` |
+| `GET /api/members` | `X-Tenant-Code` header | **Required** | `seli members list` |
+| `GET /api/members/{id}` | `X-Tenant-Code` header | **Required** | `seli members get` |
+| `GET /api/members/{id}/permissions`, `GET /api/roles`, `GET /api/roles/{id}`, `GET /api/capabilities`, `GET /api/delivery/{code}`, `POST /api/delivery/{code}/label/100x150`, `POST /api/delivery/{code}/slip/a4` | `X-Tenant-Code` header | **Required** | not wrapped yet |
+
+`health` is not tenant-agnostic despite its name: it proves the key and the tenant resolve end to end. An earlier version of this document listed `GET /members` as tenant-optional; that was wrong. Consult `api/openapi.json` for the authoritative requirement of any endpoint.
 
 **Key implementation rules for the CLI:**
 
-1. For `POST /mission/tasks`, inject the tenant code as the `tenant_code` **body field**, not the header. CLI must reject the command if no tenant is resolved (via flag, env, or default).
-2. For `/pcms/*` endpoints, CLI must reject the command early if no tenant is resolved — don't let the server return 400.
-3. For all other endpoints, send `X-Tenant-Code` only when a tenant is resolved; otherwise omit the header entirely (do not send empty string).
-4. Per-endpoint tenant rules should live in `internal/api/` so that adding new endpoints doesn't require touching command code.
+1. For an endpoint that requires a tenant, the CLI rejects the command early if none resolves (exit 5, `TENANT_REQUIRED`) — it does not let the server answer 400.
+2. For a tenant-optional endpoint (none today), send `X-Tenant-Code` only when a tenant is resolved; otherwise omit the header entirely (do not send an empty string).
+3. If a future endpoint takes the tenant in the request body instead of the header, inject it there and not in the header; the spec decides.
+4. Per-endpoint tenant rules live in `internal/api/` (`HealthRequiresTenant`, `MembersRequiresTenant`) so that adding new endpoints doesn't require touching command code.
+5. Every tenant-scoped command reports the tenant it resolved in `meta.tenant`, and where it came from in `meta.tenant_source` (`flag`, `env` or `config`).
 
 ### 5.4 Initial endpoint coverage
 
-The SDK starts by wrapping the endpoints below. **This list is not the full Seli API surface** — it's the initial scope for the first releases. The API is growing, and new endpoints are added over time; the SDK expands to cover them in subsequent releases.
+> The table in earlier drafts (`auth whoami`, `tenants list`, `boards`, `tasks`, `products`) described a different API and does not match `api/openapi.json`; those endpoints are not in the spec and are not wrapped. What follows is what ships.
 
 | Command | Endpoint | Method |
 |---|---|---|
-| `auth whoami` | `GET /api/v1/me` | GET |
-| `tenants list` | `GET /api/v1/tenants` | GET |
-| `members list` | `GET /api/v1/members` | GET |
-| `boards list` | `GET /api/v1/mission/boards` | GET |
-| `boards get` | `GET /api/v1/mission/boards/{id}` | GET |
-| `tasks list` | `GET /api/v1/mission/tasks` | GET |
-| `tasks get` | `GET /api/v1/mission/tasks/{id}` | GET |
-| `tasks create` | `POST /api/v1/mission/tasks` | POST |
-| `products list` | `GET /api/v1/pcms/products` | GET |
+| `health` | `GET /api/health` | GET |
+| `members list` | `GET /api/members` | GET |
+| `members get` | `GET /api/members/{id}` | GET |
 
-The authoritative, always-current list of endpoints, schemas, and query parameters lives in [`api/openapi.json`](./api/openapi.json) — refer to it rather than this table when in doubt.
+The spec declares seven more operations (member permissions, roles, capabilities, delivery); wrapping them is planned work (see `docs/plans/`). **This list is not the full Seli API surface** — the API is growing, and the SDK expands to cover new endpoints in subsequent releases. The authoritative, always-current list of endpoints, schemas, and query parameters lives in [`api/openapi.json`](./api/openapi.json) — refer to it rather than this table when in doubt.
 
 **Roadmap for additional endpoints:** as the Seli API exposes new resources (e.g. additional PCMS, WMS, or purchasing endpoints), corresponding commands are added to the SDK. Contributors are welcome to propose and implement new command bindings — see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ### 5.5 Boundary — Do NOT call
 
-The SDK is a client of the Public API at `/api/v1/*` **only**. It must not call any endpoint that is not declared in `api/openapi.json`. If a needed feature is missing, open a GitHub issue rather than reverse-engineering or guessing at unlisted endpoints.
+The SDK is a client of the Public API at `/api/*` **only**. It must not call any endpoint that is not declared in `api/openapi.json`. If a needed feature is missing, open a GitHub issue rather than reverse-engineering or guessing at unlisted endpoints.
 
 ### 5.6 Pagination
 
-The Public API uses page-based pagination with `page` and `limit` query parameters, returning a `meta` block with `page`, `limit`, `total`, `has_more`. The CLI handles three modes:
+The Public API uses page-based pagination: the query parameters are `page` and `pageSize` (1–100), and a list response carries `meta.pagination` as `{page, pageSize, total, totalPages}`. There is no `limit` and no `has_more`. The CLI passes the API's `meta` through untouched and adds `tenant` and `tenant_source` beside it. It handles three modes:
 
 ```bash
 # Default: first page only
-$ seli tasks list
-# → 20 items + footer "Showing 20 of 312. Use --all for full list."
+$ seli members list
+# → 20 rows at .data, and .meta.pagination = {page: 1, pageSize: 20, total: 312, totalPages: 16}
 
-# Fetch all (auto-paginate until has_more = false)
-$ seli tasks list --all
+# Fetch all (auto-paginate, 100 rows per request, until page == totalPages)
+$ seli members list --all
 
 # Manual paging
-$ seli tasks list --page 2 --limit 50
+$ seli members list --page 2 --page-size 50
 ```
 
+If `--all` fails after the first page, the rows fetched so far are still printed, with an `error` key above them and a non-zero exit.
+
 ### 5.7 Delta sync (PCMS only)
+
+> Not applicable today: the current spec has no PCMS endpoints and no `updated_since` parameter. The text below is from an earlier design and is kept only until such an endpoint exists.
 
 `GET /pcms/products` supports incremental sync via the `updated_since` query parameter and an `X-Server-Time` response header. AI agents and integration scripts should use this pattern to avoid re-fetching the full catalog on every call:
 
@@ -550,7 +558,7 @@ The spec in this repo tracks the Seli Public API as of the most recent SDK relea
 - `v1.x.x` — Bug fixes only
 - `vN.0.0` (N≥2) — Breaking change (rare)
 
-**API versioning:** CLI v1.x always targets `/api/v1/*`. When Seli introduces `/api/v2`, release CLI v2 in parallel (maintain CLI v1 for ≥12 months).
+**API versioning:** the current API has no version segment in its paths (`/api/*`). If Seli introduces a versioned prefix such as `/api/v2`, release a matching CLI major in parallel (maintain the previous major for ≥12 months).
 
 ### 7.3 Deprecation policy
 
@@ -573,8 +581,8 @@ Maintain in README:
 ```markdown
 | CLI version | Seli API | Status            | Support until |
 |-------------|------------|-------------------|---------------|
-| v1.x        | /api/v1    | ✅ Supported      | TBD           |
-| v0.x        | /api/v1    | ⚠️ Beta, no SLA  | v1.0 release  |
+| v1.x        | /api       | ✅ Supported      | TBD           |
+| v0.x        | /api       | ⚠️ Beta, no SLA  | v1.0 release  |
 ```
 
 ---
@@ -600,11 +608,11 @@ Maintain in README:
 ### 8.3 Install script
 
 ```bash
-# https://seli.app/install.sh
-curl -sSL https://seli.app/install.sh | sh
+# scripts/install.sh in this repo
+curl -fsSL https://raw.githubusercontent.com/vtech-com/seli-api-sdk/main/scripts/install.sh | sh
 
 # Or with a specific version
-curl -sSL https://seli.app/install.sh | VERSION=v1.2.0 sh
+curl -fsSL https://raw.githubusercontent.com/vtech-com/seli-api-sdk/main/scripts/install.sh | SELI_VERSION=v1.2.0 sh
 ```
 
 The script must:
@@ -710,7 +718,7 @@ Required before making the repo public:
 
 | Threat | Mitigation |
 |---|---|
-| API key leaked via git history | Pre-commit hook checks for `sk_` pattern; `.gitignore` covers config files |
+| API key leaked via git history | Pre-commit hook checks for `ssk_` pattern; `.gitignore` covers config files |
 | API key leaked via process list | Do not accept `--api-key` as a CLI flag; use env var or config file |
 | API key leaked via logs | Redact `Authorization` header in verbose mode |
 | Config file readable by other users | `chmod 600` enforced on create/update |
@@ -727,7 +735,7 @@ Required before making the repo public:
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability, please email **security@seli.app**.
+If you discover a security vulnerability, report it privately through the repository's GitHub **Security** tab (**Report a vulnerability**).
 
 **Do NOT open a public GitHub issue.**
 
@@ -874,7 +882,7 @@ Commands planned for Phase 1 + Phase 2. **This is the initial scope, not the fin
 ```
 seli
 ├── auth
-│   ├── login                    [P1]  Login with sk_ API key
+│   ├── login                    [P1]  Login with ssk_ API key
 │   ├── logout                   [P1]  Remove credential from config
 │   └── whoami                   [P1]  Show current user
 │

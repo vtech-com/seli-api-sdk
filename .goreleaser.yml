@@ -20,6 +20,12 @@ builds:
       - -X github.com/vtech-com/seli-api-sdk/internal/version.Version={{.Version}}
       - -X github.com/vtech-com/seli-api-sdk/internal/version.Commit={{.Commit}}
       - -X github.com/vtech-com/seli-api-sdk/internal/version.Date={{.Date}}
+      # The API host is configuration, never code: it comes from the environment
+      # (release.yml passes the repository variable SELI_DEFAULT_API_URL and fails
+      # before building if it is empty). envOrDefault lets a local
+      # `make release-snapshot` build without it, yielding a binary that needs
+      # --api-url or SELI_API_URL at runtime.
+      - -X github.com/vtech-com/seli-api-sdk/internal/version.DefaultAPIURL={{ envOrDefault "SELI_DEFAULT_API_URL" "" }}
 
 archives:
   - id: seli
@@ -42,13 +48,39 @@ nfpms:
     formats:
       - deb
     vendor: VTech
-    homepage: "https://seli.app"
-    maintainer: "VTech <dev@seli.app>"
+    # Contacts are configuration, like the API host: the domain will change, so
+    # release.yml supplies them from repository variables. The fallbacks name no
+    # domain at all.
+    homepage: '{{ envOrDefault "SELI_HOMEPAGE" "https://github.com/vtech-com/seli-api-sdk" }}'
+    maintainer: '{{ envOrDefault "SELI_MAINTAINER" "VTech <https://github.com/vtech-com/seli-api-sdk>" }}'
     description: "CLI tool and Go SDK for the Seli platform"
     license: MIT
     bindir: /usr/bin
     section: utils
     priority: optional
+
+# Published to the same tap as capigo: brew install --cask vtech-com/tap/seli.
+# Casks are macOS-only; Linux uses scripts/install.sh or the .deb above.
+homebrew_casks:
+  - name: seli
+    repository:
+      owner: vtech-com
+      name: homebrew-tap
+      token: '{{ envOrDefault "TAP_GITHUB_TOKEN" "" }}'
+    # Without a token the cask is still rendered into dist/ but not pushed, so a
+    # missing secret costs the Homebrew channel, not the whole release. capigo's
+    # config has no such guard: there, a missing token turns a release that has
+    # already published its GitHub assets red. release.yml warns when it is unset.
+    skip_upload: '{{ if eq (envOrDefault "TAP_GITHUB_TOKEN" "") "" }}true{{ else }}false{{ end }}'
+    homepage: '{{ envOrDefault "SELI_HOMEPAGE" "https://github.com/vtech-com/seli-api-sdk" }}'
+    description: "CLI tool and Go SDK for the Seli platform"
+    binaries: ["seli"]
+    # The binaries are not signed or notarized, so Gatekeeper would refuse to run
+    # one carrying the quarantine attribute. Same trade-off as capigo; signing and
+    # notarization would remove the need for it.
+    hooks:
+      post:
+        install: 'system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/seli"]'
 
 checksum:
   name_template: checksums.txt
