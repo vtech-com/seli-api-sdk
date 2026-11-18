@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.3] — 2026-11-18
+
+### Changed
+
+- The Seli API host moved to a new domain. The `SELI_DEFAULT_API_URL` and
+  `SELI_HOMEPAGE` repository variables now point at it, so this release
+  defaults to the new host. Earlier releases default to a host that no longer
+  resolves: set `SELI_API_URL` (or pass `--api-url`) to keep using them.
+
 ## [0.1.2] — 2026-10-23
 
 ### Changed
