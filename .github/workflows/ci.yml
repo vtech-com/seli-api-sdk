@@ -11,7 +11,9 @@ permissions:
 
 jobs:
   test:
-    name: test (${{ matrix.os }}, Go ${{ matrix.go }})
+    # The `main` ruleset requires these check names. Keep the Go version out
+    # of the name so a toolchain bump does not orphan the required checks.
+    name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
